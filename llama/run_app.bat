@@ -5,8 +5,8 @@ cd /d "F:\ipynb\chatbot\llama"
 REM Активация виртуального окружения (если используется)
 REM call venv\Scripts\activate
 
-REM Запуск Flask-приложения
-python app.py
+REM Запуск Flask-приложения без консольного окна
+start /B pythonw app.py
 
-REM Пауза, чтобы окно не закрывалось сразу
-REM pause
+REM Закрытие терминала
+exit
