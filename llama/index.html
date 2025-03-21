@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🦙 Чат с Ламой</title>
+    <link rel="shortcut icon" href="/images/favicon.png" />
+    <title>Чат с Llama 3</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -40,12 +41,10 @@
         }
         .user-message {
             background-color: rgba(192, 192, 192, 0.5);
-            text-align: right;
             justify-content: flex-end; /* Выравниваем сообщение пользователя справа */
         }
         .bot-message {
             background-color: #f5f5f5;
-            text-align: left;
             justify-content: flex-start; /* Выравниваем сообщение бота слева */
         }
         .user-icon, .bot-icon {
@@ -56,21 +55,22 @@
         input[type="text"] {
             width: calc(100% - 180px);
             padding: 10px;
-            border: 1.3px solid #cf4d23; /* Красная граница */
+            border: 1.5px solid #ff0000; /* Красная граница */
             border-radius: 5px;
-	  outline: none; /* Отключает подсветку при фокусе */
+            outline: none; /* Отключает подсветку при фокусе */
         }
         button {
             width: 170px;
             padding: 10px;
-            background-color: rgb(192, 192, 192); /*— серебристый цвет.*/
+            background-color: rgb(192, 192, 192); /* Серебристый цвет */
             color: #fff;
             border: none;
             border-radius: 5px;
             cursor: pointer;
-	  margin-top: 6px; /* Смещает кнопку вниз */        }
+            margin-top: 6px; /* Смещает кнопку вниз */
+        }
         button:hover {
-            background-color: rgba(192, 192, 192, 0.5); /* — серебристый цвет с прозрачностью 50%.*/
+            background-color: rgba(192, 192, 192, 0.5); /* Серебристый цвет с прозрачностью 50% */
         }
     </style>
 </head>
@@ -84,8 +84,37 @@
             <button onclick="sendMessage()">Отправить</button>
         </div>
     </div>
+	<script>
+		async function loadChatHistory() {
+	    try {
+		const response = await fetch('http://127.0.0.1:5000/history?user_id=default_user');
+		if (!response.ok) {
+		    throw new Error('Ошибка при загрузке истории');
+		}
+		const data = await response.json();
+		const chatBox = document.getElementById('chat-box');
 
-    <script>
+		// Очищаем чат перед загрузкой истории
+		chatBox.innerHTML = '';
+
+		// Добавляем каждое сообщение в чат
+		data.history.forEach(message => {
+		    const messageElement = document.createElement('div');
+		    messageElement.className = `message ${message.role === 'Пользователь' ? 'user-message' : 'bot-message'}`;
+		    messageElement.innerHTML = `
+			<img src="http://127.0.0.1:5000/images/${message.role === 'Пользователь' ? 'human.png' : 'llama.png'}" alt="${message.role === 'Пользователь' ? 'User' : 'Bot'}" class="${message.role === 'Пользователь' ? 'user-icon' : 'bot-icon'}">
+			${message.message}
+		    `;
+		    chatBox.appendChild(messageElement);
+		});
+
+		// Прокручиваем чат вниз
+		chatBox.scrollTop = chatBox.scrollHeight;
+	    } catch (error) {
+		console.error('Ошибка при загрузке истории:', error);
+	    }
+	}
+        // Отправка сообщения
         async function sendMessage() {
             const userInput = document.getElementById('user-input').value;
             if (!userInput) return;
@@ -135,13 +164,15 @@
                 alert('Произошла ошибка при отправке сообщения');
             }
         }
-
         // Отправка сообщения по нажатию Enter
         document.getElementById('user-input').addEventListener('keypress', function (e) {
             if (e.key === 'Enter') {
                 sendMessage();
             }
         });
+
+        // Загружаем историю при загрузке страницы
+        window.onload = loadChatHistory;
     </script>
 </body>
 </html>
