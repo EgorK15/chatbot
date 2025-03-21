@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Чат с Лама</title>
+    <title>🦙 Чат с Ламой</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -19,7 +19,7 @@
             background-color: #fff;
             border-radius: 10px;
             box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-            width: 400px;
+            width: 600px;
             padding: 20px;
         }
         .chat-box {
@@ -35,32 +35,42 @@
             margin-bottom: 10px;
             padding: 8px;
             border-radius: 5px;
+            display: flex;
+            align-items: center;
         }
         .user-message {
-            background-color: #e3f2fd;
+            background-color: rgba(192, 192, 192, 0.5);
             text-align: right;
+            justify-content: flex-end; /* Выравниваем сообщение пользователя справа */
         }
         .bot-message {
             background-color: #f5f5f5;
             text-align: left;
+            justify-content: flex-start; /* Выравниваем сообщение бота слева */
+        }
+        .user-icon, .bot-icon {
+            width: 24px; /* Размер иконки */
+            height: 24px;
+            margin-right: 10px; /* Отступ между иконкой и текстом */
         }
         input[type="text"] {
-            width: calc(100% - 80px);
+            width: calc(100% - 180px);
             padding: 10px;
-            border: 1px solid #ddd;
+            border: 1.3px solid #cf4d23; /* Красная граница */
             border-radius: 5px;
+	  outline: none; /* Отключает подсветку при фокусе */
         }
         button {
-            width: 70px;
+            width: 170px;
             padding: 10px;
-            background-color: #007bff;
+            background-color: rgb(192, 192, 192); /*— серебристый цвет.*/
             color: #fff;
             border: none;
             border-radius: 5px;
             cursor: pointer;
-        }
+	  margin-top: 6px; /* Смещает кнопку вниз */        }
         button:hover {
-            background-color: #0056b3;
+            background-color: rgba(192, 192, 192, 0.5); /* — серебристый цвет с прозрачностью 50%.*/
         }
     </style>
 </head>
@@ -84,7 +94,10 @@
             const chatBox = document.getElementById('chat-box');
             const userMessage = document.createElement('div');
             userMessage.className = 'message user-message';
-            userMessage.textContent = userInput;
+            userMessage.innerHTML = `
+                <img src="http://127.0.0.1:5000/images/human.png" alt="User" class="user-icon">
+                ${userInput}
+            `;
             chatBox.appendChild(userMessage);
 
             // Очищаем поле ввода
@@ -109,7 +122,10 @@
                 // Добавляем ответ бота в чат
                 const botMessage = document.createElement('div');
                 botMessage.className = 'message bot-message';
-                botMessage.textContent = data.response;
+                botMessage.innerHTML = `
+                    <img src="http://127.0.0.1:5000/images/llama.png" alt="Bot" class="bot-icon">
+                    ${data.response}
+                `;
                 chatBox.appendChild(botMessage);
 
                 // Прокручиваем чат вниз

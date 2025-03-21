@@ -54,6 +54,11 @@ def chat():
 def index():
     return send_from_directory(os.path.dirname(__file__), 'index.html')
 
+# Маршрут для отдачи /images/
+@app.route('/images/<filename>')
+def serve_image(filename):
+    return send_from_directory('images', filename)
+
 # Функция для открытия браузера
 def open_browser():
     webbrowser.open_new('http://127.0.0.1:5000')
