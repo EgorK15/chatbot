@@ -9,4 +9,4 @@ REM Запуск Flask-приложения
 python app.py
 
 REM Пауза, чтобы окно не закрывалось сразу
-pause
+REM pause
