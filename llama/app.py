@@ -58,8 +58,6 @@ def save_message(user_id, role, message):
         conn.execute('''
             INSERT INTO messages (user_id, role, message) VALUES (?, ?, ?)
         ''', (user_id, role, message))
-
-# Получение последних 8 сообщений
 def get_recent_history(user_id):
     with sqlite3.connect('chat_history.db') as conn:
         cursor = conn.execute('''
@@ -69,6 +67,7 @@ def get_recent_history(user_id):
             LIMIT 8
         ''', (user_id,))
         return [{"role": row[0], "message": row[1]} for row in cursor.fetchall()]
+
 
 # Инициализация базы данных при запуске
 init_db()
@@ -84,7 +83,7 @@ def chat():
         return jsonify({"error": "Сообщение не может быть пустым"}), 400
 
     try:
-        # Получаем последние 5 сообщений
+        # Получаем последние 8 сообщений
         recent_history = get_recent_history(user_id)
 
         # Формируем входные данные с историей
@@ -105,7 +104,7 @@ def chat():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# Маршрут для получения последних 5 сообщений
+# Маршрут для получения последних 8 сообщений
 @app.route('/history', methods=['GET'])
 def history():
     user_id = request.args.get('user_id', 'default_user')
@@ -118,6 +117,11 @@ def history():
 @app.route('/')
 def index():
     return send_from_directory(os.path.dirname(__file__), 'index.html')
+# Маршрут для отдачи styles.css
+@app.route('/')
+def styles():
+    return send_from_directory(os.path.dirname(__file__), 'styles.css')
+
 
 # Маршрут для отдачи статических файлов
 @app.route('/images/<filename>')
