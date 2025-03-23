@@ -170,12 +170,12 @@ with st.sidebar:
     base = os.environ.get("OPENAI_API_BASE", "base_url")
     key = os.environ.get("OPENAI_API_KEY", "api_key")
     model = os.environ.get("MODEL_NAME", "model")
-    temperature = os.environ.get("TEMPERATURE", 0.7)
+    temp = os.environ.get("TEMPERATURE", 0.7)
 
     api_key = st.text_input("API ключ", value=key, type="password")
     api_base = st.text_input("API URL", value=base)
     model_name = st.text_input("Название модели", value=model)
-    temperature = st.slider("Temperature", min_value=0.0, max_value=2.0, value=float(temperature), step=0.1)
+    temperature = st.slider("Temperature", min_value=0.0, max_value=2.0, value=float(temp), step=0.1)
     use_structured_output = st.checkbox("Использовать структурированный вывод", value=False)
     if st.button("Очистить текущий чат"):
         # Archive only the messages in the current chat
