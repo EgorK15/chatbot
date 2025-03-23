@@ -7,10 +7,6 @@ REM call venv\Scripts\activate
 
 REM Запуск Flask-приложения без консольного окна
 start /B pythonw app.py
-REM start pythonw app.py
-
-REM Пауза, чтобы окно не закрывалось сразу
-REM pause
 
 REM Закрытие терминала
 exit

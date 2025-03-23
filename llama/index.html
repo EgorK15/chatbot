@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="shortcut icon" href="/images/favicon.png" />
+    <title>Чат с Llama 3</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f9;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+        .chat-container {
+            background-color: #fff;
+            border-radius: 10px;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+            width: 600px;
+            padding: 20px;
+        }
+        .chat-box {
+            height: 300px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            padding: 10px;
+            margin-bottom: 10px;
+            background-color: #f9f9f9;
+        }
+        .message {
+            margin-bottom: 10px;
+            padding: 8px;
+            border-radius: 5px;
+            display: flex;
+            align-items: center;
+        }
+        .user-message {
+            background-color: rgba(192, 192, 192, 0.5);
+            justify-content: flex-end; /* Выравниваем сообщение пользователя справа */
+        }
+        .bot-message {
+            background-color: #f5f5f5;
+            justify-content: flex-start; /* Выравниваем сообщение бота слева */
+        }
+        .user-icon, .bot-icon {
+            width: 24px; /* Размер иконки */
+            height: 24px;
+            margin-right: 10px; /* Отступ между иконкой и текстом */
+        }
+        input[type="text"] {
+            width: calc(100% - 180px);
+            padding: 10px;
+            border: 1.5px solid #ff0000; /* Красная граница */
+            border-radius: 5px;
+            outline: none; /* Отключает подсветку при фокусе */
+        }
+        button {
+            width: 170px;
+            padding: 10px;
+            background-color: rgb(192, 192, 192); /* Серебристый цвет */
+            color: #fff;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-top: 6px; /* Смещает кнопку вниз */
+        }
+        button:hover {
+            background-color: rgba(192, 192, 192, 0.5); /* Серебристый цвет с прозрачностью 50% */
+        }
+    </style>
+</head>
+<body>
+    <div class="chat-container">
+        <div class="chat-box" id="chat-box">
+            <!-- Сообщения будут добавляться сюда -->
+        </div>
+        <div>
+            <input type="text" id="user-input" placeholder="Введите сообщение...">
+            <button onclick="sendMessage()">Отправить</button>
+        </div>
+    </div>
+	<script>
+		async function loadChatHistory() {
+	    try {
+		const response = await fetch('http://127.0.0.1:5000/history?user_id=default_user');
+		if (!response.ok) {
+		    throw new Error('Ошибка при загрузке истории');
+		}
+		const data = await response.json();
+		const chatBox = document.getElementById('chat-box');
+
+		// Очищаем чат перед загрузкой истории
+		chatBox.innerHTML = '';
+
+		// Добавляем каждое сообщение в чат
+		data.history.forEach(message => {
+		    const messageElement = document.createElement('div');
+		    messageElement.className = `message ${message.role === 'Пользователь' ? 'user-message' : 'bot-message'}`;
+		    messageElement.innerHTML = `
+			<img src="http://127.0.0.1:5000/images/${message.role === 'Пользователь' ? 'human.png' : 'llama.png'}" alt="${message.role === 'Пользователь' ? 'User' : 'Bot'}" class="${message.role === 'Пользователь' ? 'user-icon' : 'bot-icon'}">
+			${message.message}
+		    `;
+		    chatBox.appendChild(messageElement);
+		});
+
+		// Прокручиваем чат вниз
+		chatBox.scrollTop = chatBox.scrollHeight;
+	    } catch (error) {
+		console.error('Ошибка при загрузке истории:', error);
+	    }
+	}
+        // Отправка сообщения
+        async function sendMessage() {
+            const userInput = document.getElementById('user-input').value;
+            if (!userInput) return;
+
+            // Добавляем сообщение пользователя в чат
+            const chatBox = document.getElementById('chat-box');
+            const userMessage = document.createElement('div');
+            userMessage.className = 'message user-message';
+            userMessage.innerHTML = `
+                <img src="http://127.0.0.1:5000/images/human.png" alt="User" class="user-icon">
+                ${userInput}
+            `;
+            chatBox.appendChild(userMessage);
+
+            // Очищаем поле ввода
+            document.getElementById('user-input').value = '';
+
+            // Отправляем сообщение на сервер
+            try {
+                const response = await fetch('http://127.0.0.1:5000/chat', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ message: userInput }),
+                });
+
+                if (!response.ok) {
+                    throw new Error('Ошибка при отправке сообщения');
+                }
+
+                const data = await response.json();
+
+                // Добавляем ответ бота в чат
+                const botMessage = document.createElement('div');
+                botMessage.className = 'message bot-message';
+                botMessage.innerHTML = `
+                    <img src="http://127.0.0.1:5000/images/llama.png" alt="Bot" class="bot-icon">
+                    ${data.response}
+                `;
+                chatBox.appendChild(botMessage);
+
+                // Прокручиваем чат вниз
+                chatBox.scrollTop = chatBox.scrollHeight;
+            } catch (error) {
+                console.error('Ошибка:', error);
+                alert('Произошла ошибка при отправке сообщения');
+            }
+        }
+        // Отправка сообщения по нажатию Enter
+        document.getElementById('user-input').addEventListener('keypress', function (e) {
+            if (e.key === 'Enter') {
+                sendMessage();
+            }
+        });
+
+        // Загружаем историю при загрузке страницы
+        window.onload = loadChatHistory;
+    </script>
+</body>
+</html>
