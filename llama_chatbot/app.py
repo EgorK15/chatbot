@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+
 import streamlit as st
 from langchain_openai import ChatOpenAI
 from langchain.schema import HumanMessage, AIMessage
@@ -9,6 +11,12 @@ import json
 import re
 import uuid
 import datetime
+from db import (create_tables, save_message, get_chat_messages, archive_chat,
+                get_chats, save_chat, update_chat_last_active, update_chat_name,
+                archive_messages)  # New function to archive messages
+
+# Инициализируем таблицы базы данных
+create_tables()
 
 # Определение структуры вывода с помощью Pydantic
 class ChatResponse(BaseModel):
@@ -21,69 +29,127 @@ st.title('Llama Chatbot')
 
 # Инициализация структуры для хранения нескольких чатов
 if "chat_sessions" not in st.session_state:
-    # Создаем словарь для хранения всех чатов
     st.session_state.chat_sessions = {}
-    
-    # Создаем первый чат
-    first_chat_id = str(uuid.uuid4())
-    st.session_state.chat_sessions[first_chat_id] = {
-        "name": "Новый чат",
-        "messages": [],
-        "created_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-    }
-    
-    # Устанавливаем первый чат как текущий
-    st.session_state.current_chat_id = first_chat_id
+    stored_chats = get_chats()
+    if stored_chats:
+        # Загружаем сохраненные чаты из БД
+        for chat in stored_chats:
+            chat_id, name, created_at, last_active, status, model_name_db, temp = chat
+            # Если чат архивирован, скрываем его (не загружаем в список)
+            if status == 'archived':
+                continue
+            messages = get_chat_messages(chat_id)
+            msg_objects = []
+            for row in messages:
+                role, content, message_temperature, structured_output = row
+                if role == "user":
+                    msg_objects.append(HumanMessage(content=content))
+                else:
+                    ai_msg = AIMessage(content=content)
+                    if structured_output:
+                        try:
+                            ai_msg.structured_output = json.loads(structured_output)
+                        except Exception:
+                            pass
+                    msg_objects.append(ai_msg)
+            st.session_state.chat_sessions[chat_id] = {
+                "name": name,
+                "created_at": created_at,
+                "status": status,
+                "messages": msg_objects
+            }
+        # Если у нас остались чаты, выбираем первый как текущий
+        if st.session_state.chat_sessions:
+            st.session_state.current_chat_id = list(st.session_state.chat_sessions.keys())[0]
+        else:
+            # Если все чаты были archived, создаем новый
+            first_chat_id = str(uuid.uuid4())
+            created_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+            st.session_state.chat_sessions[first_chat_id] = {
+                "name": "Новый чат",
+                "messages": [],
+                "created_at": created_at,
+                "status": "active"
+            }
+            st.session_state.current_chat_id = first_chat_id
+            save_chat(first_chat_id, "Новый чат", created_at)
+    else:
+        # Если нет сохраненных чатов, создаем новый
+        first_chat_id = str(uuid.uuid4())
+        created_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+        st.session_state.chat_sessions[first_chat_id] = {
+            "name": "Новый чат",
+            "messages": [],
+            "created_at": created_at,
+            "status": "active"
+        }
+        st.session_state.current_chat_id = first_chat_id
+        save_chat(first_chat_id, "Новый чат", created_at)
 
 # Функция для создания нового чата
 def create_new_chat():
     chat_id = str(uuid.uuid4())
+    created_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
     st.session_state.chat_sessions[chat_id] = {
         "name": f"Новый чат {len(st.session_state.chat_sessions) + 1}",
         "messages": [],
-        "created_at": datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+        "created_at": created_at,
+        "status": "active"
     }
     st.session_state.current_chat_id = chat_id
-    
+    save_chat(chat_id, st.session_state.chat_sessions[chat_id]["name"], created_at)
+
 # Функция для удаления текущего чата
 def delete_current_chat():
-    if len(st.session_state.chat_sessions) > 1:
-        # Удаляем текущий чат
-        del st.session_state.chat_sessions[st.session_state.current_chat_id]
-        
-        # Выбираем последний чат как текущий
+    # При удалении, архивируем все сообщения и архивируем сам чат
+    current_chat = st.session_state.current_chat_id
+    archive_messages(current_chat)  # Archive messages in the chat
+    archive_chat(current_chat)      # Archive the chat itself
+    # Удаляем чат из видимых сессий
+    del st.session_state.chat_sessions[current_chat]
+    if st.session_state.chat_sessions:
         st.session_state.current_chat_id = list(st.session_state.chat_sessions.keys())[0]
     else:
-        # Если это последний чат, то очищаем его сообщения
-        st.session_state.chat_sessions[st.session_state.current_chat_id]["messages"] = []
+        # Если не осталось активных чатов, создаем новый
+        create_new_chat()
 
 # Функция для переименования текущего чата
 def rename_current_chat(new_name):
     if new_name:
         st.session_state.chat_sessions[st.session_state.current_chat_id]["name"] = new_name
+        update_chat_name(st.session_state.current_chat_id, new_name)
 
 # Создаем боковую панель для настроек
 with st.sidebar:
-    # Секция управления чатами
     st.header("Чаты")
-    
-    # Выбор чата
-    chat_options = {chat_id: f"{chat_data['name']} ({chat_data['created_at']})" 
+    # Формируем список активных чатов
+    chat_options = {chat_id: f"{chat_data['name']} ({chat_data['created_at']})"
                     for chat_id, chat_data in st.session_state.chat_sessions.items()}
-    
     selected_chat = st.selectbox(
         "Выберите чат",
         options=list(chat_options.keys()),
         format_func=lambda x: chat_options[x],
         index=list(chat_options.keys()).index(st.session_state.current_chat_id)
     )
-    
-    # Устанавливаем выбранный чат как текущий
     if selected_chat != st.session_state.current_chat_id:
         st.session_state.current_chat_id = selected_chat
+        # Загружаем сообщения для выбранного чата
+        messages = get_chat_messages(selected_chat)
+        msg_objects = []
+        for row in messages:
+            role, content, message_temperature, structured_output = row
+            if role == "user":
+                msg_objects.append(HumanMessage(content=content))
+            else:
+                ai_msg = AIMessage(content=content)
+                if structured_output:
+                    try:
+                        ai_msg.structured_output = json.loads(structured_output)
+                    except Exception:
+                        pass
+                msg_objects.append(ai_msg)
+        st.session_state.chat_sessions[selected_chat]["messages"] = msg_objects
         st.rerun()
-    
-    # Кнопки управления чатами
     col1, col2 = st.columns(2)
     with col1:
         if st.button("Новый чат"):
@@ -93,35 +159,26 @@ with st.sidebar:
         if st.button("Удалить чат"):
             delete_current_chat()
             st.rerun()
-    
-    # Переименование чата
     new_chat_name = st.text_input(
-        "Переименовать чат", 
+        "Переименовать чат",
         value=st.session_state.chat_sessions[st.session_state.current_chat_id]["name"]
     )
     if new_chat_name != st.session_state.chat_sessions[st.session_state.current_chat_id]["name"]:
         rename_current_chat(new_chat_name)
-    
-    # Разделитель
     st.divider()
-    
-    # Настройки API
     st.header("Настройки API")
-    api_key = st.text_input("API ключ", value="F9yei26LMobzDdVmdKuEcbIlTod3OoTJXAszIUoMdAwYwGWS50bvKODj99JZRqcJA8mUQgR1zlXoHpCORP97ODLAyfagqrob", type="password")
-    api_base = st.text_input("API URL", value="https://llama3gpu.neuraldeep.tech/v1")
-    model_name = st.text_input("Название модели", value="llama-3-8b-instruct-8k")
+    api_key = st.text_input("API ключ", value="some key", type="password")
+    api_base = st.text_input("API URL", value="some url")
+    model_name = st.text_input("Название модели", value="some model")
     temperature = st.slider("Temperature", min_value=0.0, max_value=2.0, value=0.7, step=0.1)
-    
-    # Опция для структурированного вывода
     use_structured_output = st.checkbox("Использовать структурированный вывод", value=False)
-    
-    # Кнопка для сброса текущего чата
     if st.button("Очистить текущий чат"):
+        # Archive only the messages in the current chat
+        archive_messages(st.session_state.current_chat_id)
         st.session_state.chat_sessions[st.session_state.current_chat_id]["messages"] = []
         st.rerun()
 
 # Конфигурация OpenAI-совместимого клиента для Llama
-# Проверяем, изменились ли настройки API
 api_changed = (
     "llm" not in st.session_state or
     st.session_state.get("api_key", "") != api_key or
@@ -129,19 +186,13 @@ api_changed = (
     st.session_state.get("model_name", "") != model_name or
     st.session_state.get("temperature", 0) != temperature
 )
-
 if api_changed:
-    # Сохраняем текущие настройки в session_state
     st.session_state.api_key = api_key
     st.session_state.api_base = api_base
     st.session_state.model_name = model_name
     st.session_state.temperature = temperature
-    
-    # Настраиваем переменные окружения
     os.environ["OPENAI_API_KEY"] = api_key
     os.environ["OPENAI_API_BASE"] = api_base
-    
-    # Создаем новый клиент LLM
     try:
         st.session_state.llm = ChatOpenAI(
             model_name=model_name,
@@ -153,7 +204,7 @@ if api_changed:
     except Exception as e:
         st.sidebar.error(f"Ошибка настройки API: {str(e)}")
 
-# Получаем сообщения текущего чата
+# Получаем сообщения текущего чата из session_state
 current_messages = st.session_state.chat_sessions[st.session_state.current_chat_id]["messages"]
 
 # Отображение истории сообщений текущего чата
@@ -163,7 +214,6 @@ for message in current_messages:
             st.write(message.content)
     else:
         with st.chat_message("assistant"):
-            # Проверяем, структурированный ли это ответ
             if hasattr(message, 'structured_output') and message.structured_output:
                 st.write(message.content)
                 with st.expander("Структурированный ответ"):
@@ -173,110 +223,85 @@ for message in current_messages:
 
 # Поле ввода для нового сообщения
 user_input = st.chat_input("Введите ваше сообщение...")
-
-# Обработка ввода пользователя
 if user_input:
-    # Добавляем сообщение пользователя в историю текущего чата
-    current_messages.append(HumanMessage(content=user_input))
-    
-    # Отображаем сообщение пользователя
+    human_msg = HumanMessage(content=user_input)
+    current_messages.append(human_msg)
+    save_message(st.session_state.current_chat_id, "user", user_input, temperature)
+    update_chat_last_active(st.session_state.current_chat_id)
     with st.chat_message("user"):
         st.write(user_input)
-    
-    # Получаем ответ от модели
     with st.chat_message("assistant"):
         with st.spinner("Думаю..."):
             try:
                 if "llm" in st.session_state:
                     if use_structured_output:
-                        # Создаем парсер для структурированного вывода
                         parser = PydanticOutputParser(pydantic_object=ChatResponse)
-                        
-                        # Получаем инструкции и экранируем фигурные скобки
-                        format_instructions = parser.get_format_instructions()
-                        # Заменяем одинарные фигурные скобки на двойные для экранирования
-                        format_instructions = format_instructions.replace("{", "{{").replace("}", "}}")
-                        
-                        # Создаем системное сообщение с экранированными инструкциями
+                        format_instructions = parser.get_format_instructions().replace("{", "{{").replace("}", "}}")
                         system_message = (
                             "Ты помощник, который отвечает в структурированном формате. "
                             f"Используй следующий формат для ответа:\n{format_instructions}"
                         )
-                        
-                        # Создаем шаблон для структурированного вывода
                         prompt_template = ChatPromptTemplate.from_messages([
                             ("system", system_message),
                             ("user", "{input}")
                         ])
-                        
-                        # Вывод отладочной информации
                         st.session_state.debug_info = {
                             "format_instructions": format_instructions,
                             "system_message": system_message
                         }
-                        
-                        # Специальная обработка для простого примера структурированного вывода
                         try:
-                            # Вариант с ручным форматированием запроса
                             response = st.session_state.llm.invoke([
                                 {"role": "system", "content": "Ты должен отвечать ТОЛЬКО в формате JSON со следующей структурой: {\"answer\": \"твой ответ на вопрос\", \"sources\": [\"источник1\", \"источник2\"], \"confidence\": число от 0 до 1}"},
                                 {"role": "user", "content": user_input}
                             ])
-                            
-                            # Пытаемся извлечь JSON из ответа
                             content = response.content
-                            # Находим JSON в ответе с помощью регулярного выражения
                             json_match = re.search(r'({.*})', content, re.DOTALL)
-                            
                             if json_match:
                                 try:
                                     json_str = json_match.group(1)
                                     structured_data = json.loads(json_str)
-                                    
-                                    # Проверяем наличие необходимых полей
                                     if "answer" not in structured_data:
                                         structured_data["answer"] = content
                                     if "sources" not in structured_data:
                                         structured_data["sources"] = []
                                     if "confidence" not in structured_data:
                                         structured_data["confidence"] = 0.8
-                                    
-                                    # Создаем AI сообщение с обычным текстом и структурированными данными
                                     ai_response = AIMessage(content=structured_data["answer"])
                                     ai_response.structured_output = structured_data
-                                    
-                                    # Отображаем ответ
                                     st.write(structured_data["answer"])
                                     with st.expander("Структурированный ответ"):
                                         st.json(structured_data)
-                                        
-                                    # Добавляем ответ в историю сообщений текущего чата
                                     current_messages.append(ai_response)
-                                    
+                                    save_message(st.session_state.current_chat_id, "assistant", response.content, temperature, json.dumps(structured_data))
                                 except json.JSONDecodeError:
-                                    # Если не удалось распарсить JSON, используем обычный ответ
                                     st.write(content)
-                                    current_messages.append(AIMessage(content=content))
+                                    ai_response = AIMessage(content=content)
+                                    current_messages.append(ai_response)
+                                    save_message(st.session_state.current_chat_id, "assistant", content, temperature)
                             else:
-                                # Если не нашли JSON, используем обычный ответ
                                 st.write(content)
-                                current_messages.append(AIMessage(content=content))
-                                
+                                ai_response = AIMessage(content=content)
+                                current_messages.append(ai_response)
+                                save_message(st.session_state.current_chat_id, "assistant", content, temperature)
                         except Exception as e:
                             st.error(f"Ошибка при обработке структурированного ответа: {str(e)}")
                             response = st.session_state.llm.invoke(current_messages)
                             st.write(response.content)
-                            current_messages.append(response)
+                            ai_response = AIMessage(content=response.content)
+                            current_messages.append(ai_response)
+                            save_message(st.session_state.current_chat_id, "assistant", response.content, temperature)
                     else:
-                        # Обычный неструктурированный ответ
                         response = st.session_state.llm.invoke(current_messages)
                         st.write(response.content)
-                        # Добавляем ответ бота в историю текущего чата
-                        current_messages.append(response)
+                        ai_response = AIMessage(content=response.content)
+                        current_messages.append(ai_response)
+                        save_message(st.session_state.current_chat_id, "assistant", response.content, temperature)
+                    update_chat_last_active(st.session_state.current_chat_id)
                 else:
                     raise Exception("LLM не настроен")
             except Exception as e:
                 st.error(f"Ошибка при получении ответа: {str(e)}")
-                # Для отладки используйте заглушку
                 st.write("Это тестовый ответ, так как произошла ошибка.")
-                current_messages.append(AIMessage(content="Это тестовый ответ, так как произошла ошибка.")) 
+                ai_response = AIMessage(content="Это тестовый ответ, так как произошла ошибка.")
+                current_messages.append(ai_response)
+                save_message(st.session_state.current_chat_id, "assistant", "Это тестовый ответ, так как произошла ошибка.", temperature)

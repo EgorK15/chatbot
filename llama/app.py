@@ -1,10 +1,16 @@
-from flask import Flask, request, jsonify, send_from_directory
+from flask import Flask, request, jsonify, send_from_directory, abort
 from flask_cors import CORS
 from langchain_openai import ChatOpenAI
 from langchain.prompts import ChatPromptTemplate
 import webbrowser
 import os
 import sqlite3
+import signal
+from threading import Thread
+import sys
+
+def log_to_stderr(message):
+    print(message, file=sys.stderr)
 
 # Инициализация Flask
 app = Flask(__name__)
@@ -34,10 +40,17 @@ llm = ChatOpenAI(
 )
 
 # Шаблон для чата
+'''
 prompt = ChatPromptTemplate.from_messages([
     ("system", "Ты — дружелюбный помощник Лама. Отвечай на вопросы вежливо и понятно."),
     ("human", "{message}"),
 ])
+'''
+prompt = ChatPromptTemplate.from_messages([
+    ("system", "Ты — дружелюбный помощник Лама. Отвечай на вопросы вежливо и понятно."),
+    ("human", "История диалога:\n{history}\n\nПользователь: {message}"),
+])
+
 
 # Инициализация базы данных
 def init_db():
@@ -59,16 +72,23 @@ def save_message(user_id, role, message):
             INSERT INTO messages (user_id, role, message) VALUES (?, ?, ?)
         ''', (user_id, role, message))
 
-# Получение последних 8 сообщений
-def get_recent_history(user_id):
+history_limit = 16
+
+def get_recent_history(user_id, max_messages=history_limit):
     with sqlite3.connect('chat_history.db') as conn:
         cursor = conn.execute('''
-            SELECT role, message FROM messages 
-            WHERE user_id = ? 
-            ORDER BY timestamp DESC 
-            LIMIT 8
-        ''', (user_id,))
+            SELECT role, message 
+            FROM (
+                SELECT role, message, timestamp 
+                FROM messages 
+                WHERE user_id = ? 
+                ORDER BY timestamp DESC 
+                LIMIT ?
+            ) 
+            ORDER BY timestamp ASC
+        ''', (user_id, max_messages,))
         return [{"role": row[0], "message": row[1]} for row in cursor.fetchall()]
+
 
 # Инициализация базы данных при запуске
 init_db()
@@ -84,8 +104,8 @@ def chat():
         return jsonify({"error": "Сообщение не может быть пустым"}), 400
 
     try:
-        # Получаем последние 5 сообщений
-        recent_history = get_recent_history(user_id)
+        # Получаем последние сообещея
+        recent_history = get_recent_history(user_id, 4)
 
         # Формируем входные данные с историей
         formatted_prompt = prompt.format_messages(
@@ -93,7 +113,7 @@ def chat():
             history="\n".join([f"{msg['role']}: {msg['message']}" for msg in recent_history]),
             message=user_message,
         )
-
+        print(formatted_prompt)
         # Получаем ответ от модели
         response = llm.invoke(formatted_prompt)
 
@@ -105,7 +125,7 @@ def chat():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# Маршрут для получения последних 5 сообщений
+# Маршрут для получения последних сообщений
 @app.route('/history', methods=['GET'])
 def history():
     user_id = request.args.get('user_id', 'default_user')
@@ -114,24 +134,34 @@ def history():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# Маршрут для отдачи index.html
-@app.route('/')
-def index():
-    return send_from_directory(os.path.dirname(__file__), 'index.html')
+# Flask должен автоматически обслуживть файлы из папки `static` по маршруту `/static/<filename>`
 
 # Маршрут для отдачи статических файлов
 @app.route('/images/<filename>')
 def serve_image(filename):
-    return send_from_directory('images', filename)
+    try:
+        return send_from_directory('static/images', filename)
+    except FileNotFoundError:
+        abort(404)
 
-# Маршрут для отдачи favicon.png
-@app.route('/favicon.png')
-def favicon():
-    return send_from_directory('images', 'favicon.png')
+# Маршрут для отдачи index.html
+@app.route('/')
+def index():
+    return send_from_directory('static', 'index.html')
+
+# Маршрут для отдачи styles.css
+@app.route('/')
+def styles():
+    return send_from_directory('static', 'styles.css')
 
 # Функция для открытия браузера
 def open_browser():
     webbrowser.open_new('http://127.0.0.1:5000')
+
+# Полное завершение процесса
+@app.route('/shutdown', methods=['POST'])
+def shutdown():
+    os._exit(0)
 
 # Запуск сервера
 if __name__ == '__main__':
