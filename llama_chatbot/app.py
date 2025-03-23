@@ -171,7 +171,8 @@ with st.sidebar:
     key = os.environ.get("OPENAI_API_KEY", "api_key")
     model = os.environ.get("MODEL_NAME", "model")
     temp = os.environ.get("TEMPERATURE", 0.7)
-
+    if temp == "":
+        temp = 0.7
     api_key = st.text_input("API ключ", value=key, type="password")
     api_base = st.text_input("API URL", value=base)
     model_name = st.text_input("Название модели", value=model)
