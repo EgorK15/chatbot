@@ -167,10 +167,15 @@ with st.sidebar:
         rename_current_chat(new_chat_name)
     st.divider()
     st.header("Настройки API")
-    api_key = st.text_input("API ключ", value="some key", type="password")
-    api_base = st.text_input("API URL", value="some url")
-    model_name = st.text_input("Название модели", value="some model")
-    temperature = st.slider("Temperature", min_value=0.0, max_value=2.0, value=0.7, step=0.1)
+    base = os.environ.get("OPENAI_API_BASE", "base_url")
+    key = os.environ.get("OPENAI_API_KEY", "api_key")
+    model = os.environ.get("MODEL_NAME", "model")
+    temperature = os.environ.get("TEMPERATURE", 0.7)
+
+    api_key = st.text_input("API ключ", value=key, type="password")
+    api_base = st.text_input("API URL", value=base)
+    model_name = st.text_input("Название модели", value=model)
+    temperature = st.slider("Temperature", min_value=0.0, max_value=2.0, value=float(temperature), step=0.1)
     use_structured_output = st.checkbox("Использовать структурированный вывод", value=False)
     if st.button("Очистить текущий чат"):
         # Archive only the messages in the current chat
@@ -193,6 +198,7 @@ if api_changed:
     st.session_state.temperature = temperature
     os.environ["OPENAI_API_KEY"] = api_key
     os.environ["OPENAI_API_BASE"] = api_base
+    os.environ["MODEL_NAME"] = model_name
     try:
         st.session_state.llm = ChatOpenAI(
             model_name=model_name,

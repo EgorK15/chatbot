@@ -49,8 +49,6 @@ venv.bak/
 .env.local
 .env.development.local
 
-# Streamlit
-.streamlit/
 
 # Virtual Environment
 .virtualenvs/

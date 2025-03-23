@@ -9,8 +9,13 @@ Original file is located at
 
 import sqlite3
 import datetime
+import os
 
-DB_NAME = "chat_memory.db"
+os.makedirs('/app/data', exist_ok=True)
+
+# Путь к базе данных в монтируемом volume
+DB_NAME = "/app/data/chat_memory.db"
+
 
 def create_tables():
     """Creates or updates tables for chat sessions and messages."""

@@ -9,9 +9,11 @@ services:
       - "8501:8501"
     restart: unless-stopped
     volumes:
-      # Для сохранения данных между перезапусками (опционально)
+      # Для сохранения данных между перезапусками
       - ./data:/app/data
     environment:
-      # Пример переменных окружения (можно настроить по необходимости)
+
       - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - OPENAI_API_BASE=${OPENAI_API_BASE} 
+      - OPENAI_API_BASE=${OPENAI_API_BASE}
+      - MODEL_NAME=${MODEL_NAME}
+      - TEMPERATURE=${TEMPERATURE}
