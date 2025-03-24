@@ -1,3 +1,16 @@
+// Загрузка библиотеки marked.js
+const script = document.createElement('script');
+script.src = 'https://cdn.jsdelivr.net/npm/marked/marked.min.js';
+script.onload = () => {
+    console.log('marked.js загружен!');
+    // После загрузки библиотеки можно использовать её функции
+    // Настройка marked.js
+    marked.setOptions({
+        breaks: true, // Перенос строки как <br>
+//        gfm: true, // Поддержка GitHub Flavored Markdown
+    })};
+document.head.appendChild(script);
+
 async function load_History_toChat() {
     try {
         const response = await fetch('http://127.0.0.1:5000/history?user_id=default_user');
@@ -12,14 +25,18 @@ async function load_History_toChat() {
 
         // Добавляем каждое сообщение в чат
         data.history.forEach(message => {
-            const messageElement = document.createElement('div');
-            messageElement.className = `message ${message.role === 'Пользователь' ? 'user-message' : 'bot-message'}`;
-            messageElement.innerHTML = `
-                <img src="http://127.0.0.1:5000/images/${message.role === 'Пользователь' ? 'human.png' : 'llama.png'}" alt="${message.role === 'Пользователь' ? 'User' : 'Bot'}" class="${message.role === 'Пользователь' ? 'user-icon' : 'bot-icon'}">
-                ${message.message}
-                `;
-            chatBox.appendChild(messageElement);
-        });
+        const messageElement = document.createElement('div');
+        messageElement.className = `message ${message.role === 'Пользователь' ? 'user-message' : 'bot-message'}`;
+
+        // Преобразуем Markdown в HTML
+        const messageContent = marked.parse(message.message);
+
+        messageElement.innerHTML = `
+            <img src="http://127.0.0.1:5000/images/${message.role === 'Пользователь' ? 'human.png' : 'llama.png'}" alt="${message.role === 'Пользователь' ? 'User' : 'Bot'}" class="${message.role === 'Пользователь' ? 'user-icon' : 'bot-icon'}">
+            ${messageContent}
+        `;
+        chatBox.appendChild(messageElement);
+    });
 
         // Прокручиваем чат вниз
         chatBox.scrollTop = chatBox.scrollHeight;
@@ -38,10 +55,14 @@ async function sendMessage() {
     const chatBox = document.getElementById('chat-box');
     const userMessage = document.createElement('div');
     userMessage.className = 'message user-message';
+
+    // Преобразуем Markdown в HTML
+    const userMessageContent = marked.parse(userInput);
+
     userMessage.innerHTML = `
         <img src="http://127.0.0.1:5000/images/human.png" alt="User" class="user-icon">
-        ${userInput}
-        `;
+        ${userMessageContent}
+    `;
     chatBox.appendChild(userMessage);
 
     // Очищаем поле ввода
@@ -66,10 +87,15 @@ async function sendMessage() {
         // Добавляем ответ бота в чат
         const botMessage = document.createElement('div');
         botMessage.className = 'message bot-message';
+
+        // Преобразуем Markdown в HTML
+        const botMessageContent = marked.parse(data.response);
+
         botMessage.innerHTML = `
             <img src="http://127.0.0.1:5000/images/llama.png" alt="Bot" class="bot-icon">
-            ${data.response}
-            `;
+            ${botMessageContent}
+        `;
+
         chatBox.appendChild(botMessage);
 
         // Прокручиваем чат вниз

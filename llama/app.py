@@ -9,6 +9,13 @@ import signal
 from threading import Thread
 import sys
 
+# Текущие параметры истории и памяти
+history_limit = 16
+history_trim = 10
+# Текущие параметры модели
+current_temperature = 0.7
+tokens_limit = 1000
+
 def log_to_stderr(message):
     print(message, file=sys.stderr)
 
@@ -35,8 +42,8 @@ llm = ChatOpenAI(
     base_url=api_base,
     api_key=API_KEY,
     model=my_model,
-    temperature=0.7,
-    max_tokens=1000,
+    temperature=current_temperature,
+    max_tokens=tokens_limit,
 )
 
 # Шаблон для чата
@@ -72,7 +79,6 @@ def save_message(user_id, role, message):
             INSERT INTO messages (user_id, role, message) VALUES (?, ?, ?)
         ''', (user_id, role, message))
 
-history_limit = 16
 
 def get_recent_history(user_id, max_messages=history_limit):
     with sqlite3.connect('chat_history.db') as conn:
@@ -105,7 +111,7 @@ def chat():
 
     try:
         # Получаем последние сообещея
-        recent_history = get_recent_history(user_id, 4)
+        recent_history = get_recent_history(user_id, history_limit-history_trim)
 
         # Формируем входные данные с историей
         formatted_prompt = prompt.format_messages(
@@ -113,14 +119,20 @@ def chat():
             history="\n".join([f"{msg['role']}: {msg['message']}" for msg in recent_history]),
             message=user_message,
         )
-        print(formatted_prompt)
+        print()
+        print(f"ПАРАМЕТРЫ ПРОМТА. Порог истории: {history_limit-history_trim}")
+        print(f"ФОРМАТИРОВАННЫЙ ПРОМТ: {formatted_prompt}")
         # Получаем ответ от модели
         response = llm.invoke(formatted_prompt)
 
         # Сохраняем сообщение пользователя и ответ модели
         save_message(user_id, "Пользователь", user_message)
         save_message(user_id, "Лама", response.content)
-
+        print()
+        print(f"ПАРАМЕТРЫ ОТВЕТА. Температура: {current_temperature}. Токены: {tokens_limit}")
+        print(f"ОТВЕТ МОДЕЛИ: response.content.pretty_print: {response.pretty_print}")
+        print()
+        print(f"ОТВЕТ МОДЕЛИ: response.response_metadata: {response.response_metadata}")
         return jsonify({"response": response.content})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
