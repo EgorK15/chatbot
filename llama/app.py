@@ -8,9 +8,10 @@ import sqlite3
 import signal
 from threading import Thread
 import sys
+#from config import config_me
 
 # Текущие параметры истории и памяти
-history_limit = 16
+history_limit = 34
 history_trim = 10
 # Текущие параметры модели
 current_temperature = 0.7
@@ -23,20 +24,24 @@ def log_to_stderr(message):
 app = Flask(__name__)
 CORS(app)
 
+
 # Получаем текущий рабочий каталог
 current_dir = os.getcwd()
 
-# Строим путь на три уровня вверх
+# Пути на три уровня вверх
 config_path = os.path.join(current_dir, '..', '..', 'llama.config')
-
+bd_path = os.path.join(current_dir, '..', '..', 'chat_history.db')
 # Нормализуем путь (убираем лишние '..' и т.д.)
 config_path = os.path.normpath(config_path)
+bd_path = os.path.normpath(bd_path)
 
 # Читаем файл
 with open(config_path, 'r') as file:
     api_base = file.readline().strip()
     my_model = file.readline().strip()
     API_KEY = file.readline().strip()
+
+#api_base, my_model, API_KEY = config_me()
 
 llm = ChatOpenAI(
     base_url=api_base,
@@ -61,7 +66,7 @@ prompt = ChatPromptTemplate.from_messages([
 
 # Инициализация базы данных
 def init_db():
-    with sqlite3.connect('chat_history.db') as conn:
+    with sqlite3.connect(bd_path.db) as conn:
         conn.execute('''
             CREATE TABLE IF NOT EXISTS messages (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -74,14 +79,14 @@ def init_db():
 
 # Сохранение сообщения
 def save_message(user_id, role, message):
-    with sqlite3.connect('chat_history.db') as conn:
+    with sqlite3.connect(bd_path.db) as conn:
         conn.execute('''
             INSERT INTO messages (user_id, role, message) VALUES (?, ?, ?)
         ''', (user_id, role, message))
 
 
 def get_recent_history(user_id, max_messages=history_limit):
-    with sqlite3.connect('chat_history.db') as conn:
+    with sqlite3.connect(bd_path.db) as conn:
         cursor = conn.execute('''
             SELECT role, message 
             FROM (

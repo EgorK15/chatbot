@@ -1,3 +1,20 @@
+
+// Добавляем слайдер в другой фрагмент кода
+async function slide_me() {
+    const codeBlock = document.querySelector('pre');
+    const code = codeBlock.textContent;
+    const newCode = code.replace(
+        /function updateSliderValue\(\) {/,
+        'function updateSliderValue() {\n    const slider = document.getElementById(\'myRange\');\n    const label = document.getElementById(\'sliderValue\');\n    label.textContent = slider.value;\n'
+    );
+
+    codeBlock.innerHTML = newCode;
+
+    const slider = document.getElementById('myRange');
+    const label = document.getElementById('sliderValue');
+    slider.oninput = () => label.textContent = slider.value;
+}
+
 // Загрузка библиотеки marked.js
 const script = document.createElement('script');
 script.src = 'https://cdn.jsdelivr.net/npm/marked/marked.min.js';
