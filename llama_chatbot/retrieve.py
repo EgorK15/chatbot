@@ -26,4 +26,10 @@ def retrieve(query_text):
     return results
 
 if __name__ == '__main__':
-    print(type(retrieve("Бульдог подходит для жизни в частном доме?")))
+    res = retrieve("Бульдог подходит для жизни в частном доме?")
+    first = res["matches"][0]["metadata"]["chunk_text"]
+    second = res["matches"][1]["metadata"]["chunk_text"]
+    third = res["matches"][2]["metadata"]["chunk_text"]
+    fourth = res["matches"][3]["metadata"]["chunk_text"]
+    fifth = res["matches"][4]["metadata"]["chunk_text"]
+    print(f"a - вопрос пользователя\n {first} - первый источник\n {second} - второй источник\n {third} - третий источник\n {fourth} - четвёртый источник\n {fifth} - пятый источник\n")
