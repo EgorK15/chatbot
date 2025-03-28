@@ -8,6 +8,8 @@ langchain = "*"
 langchain-openai = "*"
 openai = "*"
 streamlit = "*"
+sentence-transformers = "*"
+pinecone = "*"
 
 [dev-packages]
 
