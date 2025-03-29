@@ -4,15 +4,10 @@ from langchain_openai import ChatOpenAI
 from langchain.prompts import ChatPromptTemplate
 import webbrowser
 import os
-import sqlite3
-import signal
-from threading import Thread
 import sys
-#from config import config_me
+from config import config_me, path_me
+from db import init_db, get_recent_history, save_message, history_limit, history_trim
 
-# Текущие параметры истории и памяти
-history_limit = 34
-history_trim = 10
 # Текущие параметры модели
 current_temperature = 0.7
 tokens_limit = 1000
@@ -24,24 +19,8 @@ def log_to_stderr(message):
 app = Flask(__name__)
 CORS(app)
 
-
-# Получаем текущий рабочий каталог
-current_dir = os.getcwd()
-
-# Пути на три уровня вверх
-config_path = os.path.join(current_dir, '..', '..', 'llama.config')
-bd_path = os.path.join(current_dir, '..', '..', 'chat_history.db')
-# Нормализуем путь (убираем лишние '..' и т.д.)
-config_path = os.path.normpath(config_path)
-bd_path = os.path.normpath(bd_path)
-
-# Читаем файл
-with open(config_path, 'r') as file:
-    api_base = file.readline().strip()
-    my_model = file.readline().strip()
-    API_KEY = file.readline().strip()
-
-#api_base, my_model, API_KEY = config_me()
+# Настройки модели 
+API_KEY, api_base, my_model = config_me()
 
 llm = ChatOpenAI(
     base_url=api_base,
@@ -51,58 +30,14 @@ llm = ChatOpenAI(
     max_tokens=tokens_limit,
 )
 
+# Инициализация базы данных при запуске
+init_db()
+
 # Шаблон для чата
-'''
-prompt = ChatPromptTemplate.from_messages([
-    ("system", "Ты — дружелюбный помощник Лама. Отвечай на вопросы вежливо и понятно."),
-    ("human", "{message}"),
-])
-'''
 prompt = ChatPromptTemplate.from_messages([
     ("system", "Ты — дружелюбный помощник Лама. Отвечай на вопросы вежливо и понятно."),
     ("human", "История диалога:\n{history}\n\nПользователь: {message}"),
 ])
-
-
-# Инициализация базы данных
-def init_db():
-    with sqlite3.connect(bd_path.db) as conn:
-        conn.execute('''
-            CREATE TABLE IF NOT EXISTS messages (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                user_id TEXT NOT NULL,
-                role TEXT NOT NULL,
-                message TEXT NOT NULL,
-                timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
-            )
-        ''')
-
-# Сохранение сообщения
-def save_message(user_id, role, message):
-    with sqlite3.connect(bd_path.db) as conn:
-        conn.execute('''
-            INSERT INTO messages (user_id, role, message) VALUES (?, ?, ?)
-        ''', (user_id, role, message))
-
-
-def get_recent_history(user_id, max_messages=history_limit):
-    with sqlite3.connect(bd_path.db) as conn:
-        cursor = conn.execute('''
-            SELECT role, message 
-            FROM (
-                SELECT role, message, timestamp 
-                FROM messages 
-                WHERE user_id = ? 
-                ORDER BY timestamp DESC 
-                LIMIT ?
-            ) 
-            ORDER BY timestamp ASC
-        ''', (user_id, max_messages,))
-        return [{"role": row[0], "message": row[1]} for row in cursor.fetchall()]
-
-
-# Инициализация базы данных при запуске
-init_db()
 
 # Маршрут для обработки сообщений
 @app.route('/chat', methods=['POST'])

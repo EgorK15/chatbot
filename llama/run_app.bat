@@ -8,4 +8,4 @@ REM Запуск Flask-приложения без консольного окн
 start /B pythonw app.py
 
 REM Закрытие терминала
-exit
+REM exit
