@@ -14,7 +14,7 @@ import datetime
 from db import (create_tables, save_message, get_chat_messages, archive_chat,
                 get_chats, save_chat, update_chat_last_active, update_chat_name,
                 archive_messages)  # New function to archive messages
-
+import retrieve
 # Инициализируем таблицы базы данных
 create_tables()
 
@@ -177,7 +177,7 @@ with st.sidebar:
     api_base = st.text_input("API URL", value=base)
     model_name = st.text_input("Название модели", value=model)
     temperature = st.slider("Temperature", min_value=0.0, max_value=2.0, value=float(temp), step=0.1)
-    use_structured_output = st.checkbox("Использовать структурированный вывод", value=False)
+    use_rag = st.checkbox("Использовать RAG", value=False)
     if st.button("Очистить текущий чат"):
         # Archive only the messages in the current chat
         archive_messages(st.session_state.current_chat_id)
@@ -241,11 +241,12 @@ if user_input:
         with st.spinner("Думаю..."):
             try:
                 if "llm" in st.session_state:
-                    if use_structured_output:
+                    if use_rag:
+                        res = retrieve.retrieve(user_input)
                         parser = PydanticOutputParser(pydantic_object=ChatResponse)
                         format_instructions = parser.get_format_instructions().replace("{", "{{").replace("}", "}}")
                         system_message = (
-                            "Ты помощник, который отвечает в структурированном формате. "
+                            "Ты помощник, который отвечает на вопрос на основе текстов, которые тебе дадут. Не придумывай ничего, чего бы не было в текстах "
                             f"Используй следующий формат для ответа:\n{format_instructions}"
                         )
                         prompt_template = ChatPromptTemplate.from_messages([
@@ -257,10 +258,16 @@ if user_input:
                             "system_message": system_message
                         }
                         try:
+                            first = res["matches"][0]["metadata"]["chunk_text"]
+                            second = res["matches"][1]["metadata"]["chunk_text"]
+                            third = res["matches"][2]["metadata"]["chunk_text"]
+                            fourth = res["matches"][3]["metadata"]["chunk_text"]
+                            fifth = res["matches"][4]["metadata"]["chunk_text"]
                             response = st.session_state.llm.invoke([
-                                {"role": "system", "content": "Ты должен отвечать ТОЛЬКО в формате JSON со следующей структурой: {\"answer\": \"твой ответ на вопрос\", \"sources\": [\"источник1\", \"источник2\"], \"confidence\": число от 0 до 1}"},
-                                {"role": "user", "content": user_input}
+                                {"role": "system", "content": f"Ты должен отвечать ТОЛЬКО по данным тебе источникам (не придумывая ничего от себя) в формате JSON со следующей структурой: answer: \"твой ответ на вопрос\", \"sources\": [{first}, {second}, {third}, {fourth}, {fifth}], \"confidence\": число от 0 до 1"},
+                                {"role": "user", "content": f"{user_input} - вопрос пользователя\n {first} - первый источник\n {second} - второй источник\n {third} - третий источник\n {fourth} - четвёртый источник\n {fifth} - пятый источник\n"}
                             ])
+                            print(response)
                             content = response.content
                             json_match = re.search(r'({.*})', content, re.DOTALL)
                             if json_match:
