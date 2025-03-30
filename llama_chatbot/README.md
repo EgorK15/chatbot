@@ -57,7 +57,9 @@ pipenv run streamlit run app.py
 
 ## Запуск с Docker
 
-1. Соберите и запустите контейнер с помощью Docker Compose:
+1. Поместите настройки доступа в файл .env (см: .env.example)
+  
+2. Соберите и запустите контейнер с помощью Docker Compose:
 
 ```bash
 docker-compose build
