@@ -1,0 +1,11 @@
+streamlit
+langchain
+langchain-openai
+openai
+sentence-transformers
+scikit-learn
+requests
+pandas
+pydantic
+pinecone
+joblib

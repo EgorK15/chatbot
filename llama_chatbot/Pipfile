@@ -16,7 +16,6 @@ pandas = "*"
 pydantic = "*"
 numpy = "*"
 pinecone = "==6.0.2"
-
 [dev-packages]
 
 [requires]

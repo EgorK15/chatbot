@@ -233,6 +233,9 @@ for message in current_messages:
 # Обработка нового сообщения пользователя
 user_input = st.chat_input("Введите ваше сообщение...")
 if user_input:
+    user_input_q = st.session_state.llm.invoke([{"role": "system",
+                                                 "content": "Ты являешься частью системы по ответам на вопросы. Пользователь даст тебе вопрос, который может быть плохо сформулирован. Твоя задача привести его к виду, где 1) Будут отсутствовать все лишние слова (междометия, слова паразиты и прочие) 2) Где будет чёткая формулировка, какую конкретно информацию надо найти"},
+                                                {"role": "user", "content": user_input}]).content
     #human_msg = HumanMessage(content=user_input)
     #current_messages.append(human_msg)
     #save_message(st.session_state.current_chat_id, "user", user_input, temperature)
@@ -244,7 +247,7 @@ if user_input:
             try:
                 if "llm" in st.session_state:
                     # Определяем тему запроса пользователя
-                    topic_result = detect_topic(user_input)
+                    topic_result = detect_topic(user_input_q)
                     st.info(f"Определённая тема: {topic_result['topic_name']} "
                             f"(код {topic_result['topic_code']}, уверенность: {topic_result['confidence']:.2f})\n"
                             f"Причина: {topic_result['reasoning']}")
@@ -252,7 +255,7 @@ if user_input:
                     # Используем код темы для RAG-ветки
                     if topic_result["topic_code"] != 9:
                         # Если тема определена, запускаем RAG-ветку с фильтром по теме
-                        res = retrieve.retrieve(user_input, topic_result["topic_code"])
+                        res = retrieve.retrieve(user_input_q, topic_result["topic_code"])
 
                         max_score = max([match["score"] for match in res["matches"]]) if res["matches"] else 0
                         SIMILARITY_THRESHOLD = 0.55
@@ -311,15 +314,14 @@ if user_input:
                         "system_message": system_message
                     }
                     try:
-                        user_input_q = st.session_state.llm.invoke([{"role": "system",
-                                                                     "content": "Ты являешься частью системы по ответам на вопросы. Пользователь даст тебе вопрос, который может быть плохо сформулирован. Твоя задача привести его к виду, где 1) Будут отсутствовать все лишние слова (междометия, слова паразиты и прочие) 2) Где будет чёткая формулировка, какую конкретно информацию надо найти"},{"role":"user","content": user_input}])
-                        res = retrieve.retrieve(user_input_q.content)
+
+                        res = retrieve.retrieve(user_input_q)
                         first = res["matches"][0]["metadata"]["chunk_text"]
                         second = res["matches"][1]["metadata"]["chunk_text"]
                         third = res["matches"][2]["metadata"]["chunk_text"]
                         fourth = res["matches"][3]["metadata"]["chunk_text"]
                         fifth = res["matches"][4]["metadata"]["chunk_text"]
-                        print(user_input_q.content)
+                        print(user_input_q)
                         rag_message = f"Ты должен отвечать ТОЛЬКО по данным тебе источникам (не придумывая ничего от себя если такой информации нет говори не знаю) в формате JSON со следующей структурой: answer: \"твой ответ на вопрос\", \"sources\": [{first}, {second}, {third}, {fourth}, {fifth}], \"confidence\": число от 0 до 1\n" + f"{user_input} - вопрос пользователя\n {first} - первый источник\n {second} - второй источник\n {third} - третий источник\n {fourth} - четвёртый источник\n {fifth} - пятый источник\n , note: \"примечание об источниках, если необходимо\""
                         human_msg = HumanMessage(content=rag_message)
                         current_messages.append(human_msg)
