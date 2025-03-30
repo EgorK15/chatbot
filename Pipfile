@@ -4,14 +4,22 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-streamlit = "*"
-openai = "*"
-langchain-openai = "*"
-langchain = "*"
-sentence-transformers = "*"
 pinecone = "*"
+sentence-transformers = "*"
+streamlit = "*"
+langchain = "*"
+langchain-openai = "*"
+openai = "*"
+bertopic = "*"
+joblib = "*"
+requests = "*"
+pandas = "*"
+pydantic = "*"
+numpy = "*"
+pinecone-client = "*"
 
 [dev-packages]
 
 [requires]
 python_version = "3.11"
+python_full_version = "3.11.11"

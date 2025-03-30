@@ -6,7 +6,6 @@ name = "pypi"
 [packages]
 pinecone = "*"
 sentence-transformers = "*"
-pinecone-client = "*"
 streamlit = "*"
 langchain = "*"
 langchain-openai = "*"
