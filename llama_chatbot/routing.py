@@ -7,51 +7,47 @@ Original file is located at
     https://colab.research.google.com/drive/1cbluuCWzl7mnp6R6zpbUdi06XZ23G_IC
 """
 
-import json
-import os
-import traceback
-from topic_model import topic_model
+from topic_model import model, synonym_embeddings, SYNONYMS, SYNONYM_TO_TOPIC, TOPICS
+from sklearn.metrics.pairwise import cosine_similarity
+import numpy as np
 
-TOPICS_PATH = os.path.join(os.path.dirname(__file__), "topics.json")
-
-def load_topics():
-    with open(TOPICS_PATH, "r", encoding="utf-8") as f:
-        raw_topics = json.load(f)
-        return {int(k): v for k, v in raw_topics.items()}
-
-TOPICS = load_topics()
+SIMILARITY_THRESHOLD = 0.55  # Можно настроить
 
 def detect_topic(query):
     try:
-        topics, probs = topic_model.find_topics(query, top_n=1)
-        predicted_topic = topics[0]
-        confidence = probs[0]
+        query_embedding = model.encode([query])
+        similarities = cosine_similarity(query_embedding, synonym_embeddings)[0]
 
-        if predicted_topic in TOPICS:
-            topic_name = TOPICS[predicted_topic]
+        # Группируем по topic_code
+        topic_scores = {}
+        for idx, score in enumerate(similarities):
+            topic_code = SYNONYM_TO_TOPIC[SYNONYMS[idx]]
+            if topic_code not in topic_scores or score > topic_scores[topic_code]:
+                topic_scores[topic_code] = score
+
+        # Ищем лучший topic
+        best_topic_code = max(topic_scores, key=topic_scores.get)
+        best_score = topic_scores[best_topic_code]
+
+        if best_score >= SIMILARITY_THRESHOLD:
             return {
-                "topic_code": predicted_topic,
-                "topic_name": topic_name,
-                "confidence": confidence,
-                "reasoning": f"Тема определена моделью BERTopic с уверенностью {confidence:.2f}."
+                "topic_code": best_topic_code,
+                "topic_name": ", ".join(TOPICS[best_topic_code]),
+                "confidence": float(best_score),
+                "reasoning": f"Наиболее близкий синоним из темы: {TOPICS[best_topic_code]} (similarity {best_score:.2f})"
             }
         else:
             return {
                 "topic_code": 9,
                 "topic_name": "вне тем",
-                "confidence": confidence,
-                "reasoning": f"BERTopic не распознала известные темы (код темы: {predicted_topic})."
+                "confidence": float(best_score),
+                "reasoning": "Похожая тема не найдена. Similarity ниже порога."
             }
 
     except Exception as e:
-        error_trace = traceback.format_exc()
-        # Распечатаем ошибку в терминале
-        print("[detect_topic] Exception:", error_trace)
-
-        # Вернём подробную ошибку в reasoning
         return {
             "topic_code": 9,
             "topic_name": "вне тем",
             "confidence": 0.0,
-            "reasoning": f"Ошибка при работе модели BERTopic: {str(e)}"
+            "reasoning": f"Ошибка при классификации: {str(e)}"
         }

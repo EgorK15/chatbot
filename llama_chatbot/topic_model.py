@@ -9,22 +9,33 @@ Original file is located at
 
 # topic_model.py
 
-import requests
-import joblib
-import io
-import numpy as np
-from bertopic import BERTopic
+import json
+import os
+from sentence_transformers import SentenceTransformer
+from sklearn.metrics.pairwise import cosine_similarity
 
-MODEL_URL = 'https://storage.yandexcloud.net/cyrilos/red_bertopic_model'
+# Загружаем темы
+TOPICS_PATH = os.path.join(os.path.dirname(__file__), "topics.json")
 
-def load_topic_model():
-    response = requests.get(MODEL_URL)
-    if response.status_code == 200:
-        loaded_model = joblib.load(io.BytesIO(response.content))
-        print("BERTopic модель успешно загружена.")
-        return loaded_model
-    else:
-        raise ValueError(f"Ошибка загрузки модели: {response.status_code}")
+def load_topics():
+    with open(TOPICS_PATH, "r", encoding="utf-8") as f:
+        raw_topics = json.load(f)
+        return {int(k): v for k, v in raw_topics.items()}
 
-# Загружаем один раз, чтобы не повторять загрузку при каждом запросе
-topic_model = load_topic_model()
+TOPICS = load_topics()
+
+# Подготовим список всех синонимов и мапу topic_code
+SYNONYMS = []
+SYNONYM_TO_TOPIC = {}
+
+for topic_code, synonyms in TOPICS.items():
+    for synonym in synonyms:
+        SYNONYMS.append(synonym)
+        SYNONYM_TO_TOPIC[synonym] = topic_code
+
+# Загружаем sentence-transformers модель
+model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+
+# Векторизуем все синонимы заранее
+synonym_embeddings = model.encode(SYNONYMS)
+print(f"Загружено {len(SYNONYMS)} синонимов по {len(TOPICS)} темам.")
