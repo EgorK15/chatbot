@@ -262,12 +262,13 @@ if user_input:
 
                         if not res["matches"] or max_score < SIMILARITY_THRESHOLD:
                             human_msg = HumanMessage(content=user_input)
+                            save_message(st.session_state.current_chat_id, "user", human_msg, temperature)
                             current_messages.append(human_msg)
                             fallback_msg = "❗️К сожалению, в нашей базе данных нет ответа на этот вопрос. Я обращаюсь к открытым источникам..."
                             st.write(fallback_msg)
                             ai_notice = AIMessage(content=fallback_msg)
                             current_messages.append(ai_notice)
-                            #save_message(st.session_state.current_chat_id, "assistant", fallback_msg, temperature)
+                            save_message(st.session_state.current_chat_id, "assistant", fallback_msg, temperature)
 
                             response = st.session_state.llm.invoke(current_messages)
                             st.write(response.content)
@@ -288,7 +289,7 @@ if user_input:
                             st.write(fallback_msg)
                             ai_notice = AIMessage(content=fallback_msg)
                             current_messages.append(ai_notice)
-                            #save_message(st.session_state.current_chat_id, "assistant", fallback_msg, temperature)
+                            save_message(st.session_state.current_chat_id, "assistant", fallback_msg, temperature)
 
                             response = st.session_state.llm.invoke(current_messages)
                             st.write(response.content)
