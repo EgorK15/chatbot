@@ -4,7 +4,6 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-pinecone = "*"
 sentence-transformers = "*"
 streamlit = "*"
 langchain = "*"
@@ -16,7 +15,7 @@ requests = "*"
 pandas = "*"
 pydantic = "*"
 numpy = "*"
-pinecone-client = "*"
+pinecone = "==6.0.2"
 
 [dev-packages]
 

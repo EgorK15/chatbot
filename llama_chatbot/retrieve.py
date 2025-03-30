@@ -10,10 +10,10 @@ Original file is located at
 import os
 
 from sentence_transformers import SentenceTransformer
-import pinecone as pc
+from pinecone import Pinecone
 
 # Инициализация Pinecone
-pc.init(api_key=os.environ["PINECONE_API_KEY"])  # Замените на ваш API-ключ
+pc = Pinecone(api_key=os.environ["PINECONE_API_KEY"])  # Замените на ваш API-ключ
 
 # Подключение к индексу
 index_name = os.environ["INDEX_NAME"]
