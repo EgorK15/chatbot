@@ -267,7 +267,7 @@ if user_input:
                             st.write(fallback_msg)
                             ai_notice = AIMessage(content=fallback_msg)
                             current_messages.append(ai_notice)
-                            save_message(st.session_state.current_chat_id, "assistant", fallback_msg, temperature)
+                            #save_message(st.session_state.current_chat_id, "assistant", fallback_msg, temperature)
 
                             response = st.session_state.llm.invoke(current_messages)
                             st.write(response.content)
@@ -288,7 +288,7 @@ if user_input:
                             st.write(fallback_msg)
                             ai_notice = AIMessage(content=fallback_msg)
                             current_messages.append(ai_notice)
-                            save_message(st.session_state.current_chat_id, "assistant", fallback_msg, temperature)
+                            #save_message(st.session_state.current_chat_id, "assistant", fallback_msg, temperature)
 
                             response = st.session_state.llm.invoke(current_messages)
                             st.write(response.content)
@@ -325,7 +325,7 @@ if user_input:
                         rag_message = f"Ты должен отвечать ТОЛЬКО по данным тебе источникам (не придумывая ничего от себя если такой информации нет говори не знаю) в формате JSON со следующей структурой: answer: \"твой ответ на вопрос\", \"sources\": [{first}, {second}, {third}, {fourth}, {fifth}], \"confidence\": число от 0 до 1\n" + f"{user_input} - вопрос пользователя\n {first} - первый источник\n {second} - второй источник\n {third} - третий источник\n {fourth} - четвёртый источник\n {fifth} - пятый источник\n , note: \"примечание об источниках, если необходимо\""
                         human_msg = HumanMessage(content=rag_message)
                         current_messages.append(human_msg)
-                        save_message(st.session_state.current_chat_id, "user", rag_message, temperature)
+                        save_message(st.session_state.current_chat_id, "user", user_input, temperature)
                         response = st.session_state.llm.invoke(current_messages)
                         content = response.content
                         json_match = re.search(r'({.*})', content, re.DOTALL)
