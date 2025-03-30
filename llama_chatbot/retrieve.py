@@ -23,15 +23,16 @@ index = pc.Index(index_name)
 model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
 
 # Векторизация запроса
-def retrieve(query_text):
+def retrieve(query_text, topic_code=None):
     query_embedding = model.encode(query_text)
-    # Поиск в индексе
+    filter_dict = {"topic": topic_code} if topic_code is not None else None
+
     results = index.query(
-        vector=query_embedding.tolist(),  # Вектор запроса
-        top_k=5,  # Количество возвращаемых результатов
-        include_metadata=True  # Включить метаданные в результаты
+        vector=query_embedding.tolist(),
+        top_k=5,
+        include_metadata=True,
+        filter=filter_dict
     )
-    # Вывод результатов
     return results
 
 if __name__ == '__main__':
