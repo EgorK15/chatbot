@@ -13,16 +13,19 @@ import uuid
 import datetime
 from db import (create_tables, save_message, get_chat_messages, archive_chat,
                 get_chats, save_chat, update_chat_last_active, update_chat_name,
-                archive_messages)  # New function to archive messages
+                archive_messages)
 import retrieve
+from routing import detect_topic  # Импорт функции для определения темы
+
 # Инициализируем таблицы базы данных
 create_tables()
 
-# Определение структуры вывода с помощью Pydantic
+# Определение структуры вывода с помощью Pydantic с дополнительным полем note
 class ChatResponse(BaseModel):
     answer: str = Field(description="Ответ на вопрос пользователя")
     sources: list = Field(description="Источники информации, использованные для ответа", default_factory=list)
     confidence: float = Field(description="Уровень уверенности в ответе от 0 до 1", ge=0, le=1)
+    note: str = Field(description="Примечание об источниках, если необходимо", default="")
 
 # Настройка заголовка приложения
 st.title('Llama Chatbot')
@@ -101,16 +104,13 @@ def create_new_chat():
 
 # Функция для удаления текущего чата
 def delete_current_chat():
-    # При удалении, архивируем все сообщения и архивируем сам чат
     current_chat = st.session_state.current_chat_id
-    archive_messages(current_chat)  # Archive messages in the chat
-    archive_chat(current_chat)      # Archive the chat itself
-    # Удаляем чат из видимых сессий
+    archive_messages(current_chat)  # Архивируем сообщения
+    archive_chat(current_chat)      # Архивируем чат
     del st.session_state.chat_sessions[current_chat]
     if st.session_state.chat_sessions:
         st.session_state.current_chat_id = list(st.session_state.chat_sessions.keys())[0]
     else:
-        # Если не осталось активных чатов, создаем новый
         create_new_chat()
 
 # Функция для переименования текущего чата
@@ -119,10 +119,9 @@ def rename_current_chat(new_name):
         st.session_state.chat_sessions[st.session_state.current_chat_id]["name"] = new_name
         update_chat_name(st.session_state.current_chat_id, new_name)
 
-# Создаем боковую панель для настроек
+# Боковая панель для настроек
 with st.sidebar:
     st.header("Чаты")
-    # Формируем список активных чатов
     chat_options = {chat_id: f"{chat_data['name']} ({chat_data['created_at']})"
                     for chat_id, chat_data in st.session_state.chat_sessions.items()}
     selected_chat = st.selectbox(
@@ -133,7 +132,6 @@ with st.sidebar:
     )
     if selected_chat != st.session_state.current_chat_id:
         st.session_state.current_chat_id = selected_chat
-        # Загружаем сообщения для выбранного чата
         messages = get_chat_messages(selected_chat)
         msg_objects = []
         for row in messages:
@@ -177,14 +175,18 @@ with st.sidebar:
     api_base = st.text_input("API URL", value=base)
     model_name = st.text_input("Название модели", value=model)
     temperature = st.slider("Temperature", min_value=0.0, max_value=2.0, value=float(temp), step=0.1)
-    use_rag = st.checkbox("Использовать RAG", value=False)
+    # Чекбокс "Использовать RAG" удалён – выбор определяется автоматически
+    st.divider()
+    st.header("Настройки Pinecone DB")
+    pinecone_db_name = st.text_input("Имя Pinecone DB", value=os.environ.get("PINECONE_INDEX_NAME", ""))
+    pinecone_api_key = st.text_input("Pinecone API ключ", value=os.environ.get("PINECONE_API_KEY", ""), type="password")
     if st.button("Очистить текущий чат"):
         # Archive only the messages in the current chat
         archive_messages(st.session_state.current_chat_id)
         st.session_state.chat_sessions[st.session_state.current_chat_id]["messages"] = []
         st.rerun()
 
-# Конфигурация OpenAI-совместимого клиента для Llama
+# Конфигурация клиента LLM
 api_changed = (
     "llm" not in st.session_state or
     st.session_state.get("api_key", "") != api_key or
@@ -211,7 +213,7 @@ if api_changed:
     except Exception as e:
         st.sidebar.error(f"Ошибка настройки API: {str(e)}")
 
-# Получаем сообщения текущего чата из session_state
+# Отображение истории сообщений текущего чата
 current_messages = st.session_state.chat_sessions[st.session_state.current_chat_id]["messages"]
 
 # Отображение истории сообщений текущего чата
@@ -228,12 +230,18 @@ for message in current_messages:
             else:
                 st.write(message.content)
 
-# Поле ввода для нового сообщения
+# Обработка нового сообщения пользователя
 user_input = st.chat_input("Введите ваше сообщение...")
 if user_input:
-    human_msg = HumanMessage(content=user_input)
-    current_messages.append(human_msg)
-    save_message(st.session_state.current_chat_id, "user", user_input, temperature)
+    q_prompt = "Ты являешься частью системы по ответам на вопросы. Пользователь даст тебе вопрос, который может быть плохо сформулирован. Твоя задача привести его к виду, где 1) Будут отсутствовать все лишние слова (междометия, слова паразиты и прочие) 2) Где будет чёткая формулировка, какую конкретно информацию надо найти (опираясь на историю сообщений в том числе). Если непонятно, что искать, выведи максимально похожий запрос. В ответе должен быть только запрос, без пояснений и обоснований\n" + user_input
+    q_mes = HumanMessage(content=q_prompt)
+    current_messages.append(q_mes)
+    user_input_q = st.session_state.llm.invoke(current_messages).content
+    print(user_input_q)
+    current_messages.pop()
+    #human_msg = HumanMessage(content=user_input)
+    #current_messages.append(human_msg)
+    #save_message(st.session_state.current_chat_id, "user", user_input, temperature)
     update_chat_last_active(st.session_state.current_chat_id)
     with st.chat_message("user"):
         st.write(user_input)
@@ -241,70 +249,127 @@ if user_input:
         with st.spinner("Думаю..."):
             try:
                 if "llm" in st.session_state:
-                    if use_rag:
-                        res = retrieve.retrieve(user_input)
-                        parser = PydanticOutputParser(pydantic_object=ChatResponse)
-                        format_instructions = parser.get_format_instructions().replace("{", "{{").replace("}", "}}")
-                        system_message = (
-                            "Ты помощник, который отвечает на вопрос на основе текстов, которые тебе дадут. Не придумывай ничего, чего бы не было в текстах "
-                            f"Используй следующий формат для ответа:\n{format_instructions}"
-                        )
-                        prompt_template = ChatPromptTemplate.from_messages([
-                            ("system", system_message),
-                            ("user", "{input}")
-                        ])
-                        st.session_state.debug_info = {
-                            "format_instructions": format_instructions,
-                            "system_message": system_message
-                        }
-                        try:
-                            first = res["matches"][0]["metadata"]["chunk_text"]
-                            second = res["matches"][1]["metadata"]["chunk_text"]
-                            third = res["matches"][2]["metadata"]["chunk_text"]
-                            fourth = res["matches"][3]["metadata"]["chunk_text"]
-                            fifth = res["matches"][4]["metadata"]["chunk_text"]
-                            response = st.session_state.llm.invoke([
-                                {"role": "system", "content": f"Ты должен отвечать ТОЛЬКО по данным тебе источникам (не придумывая ничего от себя) в формате JSON со следующей структурой: answer: \"твой ответ на вопрос\", \"sources\": [{first}, {second}, {third}, {fourth}, {fifth}], \"confidence\": число от 0 до 1"},
-                                {"role": "user", "content": f"{user_input} - вопрос пользователя\n {first} - первый источник\n {second} - второй источник\n {third} - третий источник\n {fourth} - четвёртый источник\n {fifth} - пятый источник\n"}
-                            ])
-                            print(response)
-                            content = response.content
-                            json_match = re.search(r'({.*})', content, re.DOTALL)
-                            if json_match:
-                                try:
-                                    json_str = json_match.group(1)
-                                    structured_data = json.loads(json_str)
-                                    if "answer" not in structured_data:
-                                        structured_data["answer"] = content
-                                    if "sources" not in structured_data:
-                                        structured_data["sources"] = []
-                                    if "confidence" not in structured_data:
-                                        structured_data["confidence"] = 0.8
-                                    ai_response = AIMessage(content=structured_data["answer"])
-                                    ai_response.structured_output = structured_data
-                                    st.write(structured_data["answer"])
-                                    with st.expander("Структурированный ответ"):
-                                        st.json(structured_data)
-                                    current_messages.append(ai_response)
-                                    save_message(st.session_state.current_chat_id, "assistant", response.content, temperature, json.dumps(structured_data))
-                                except json.JSONDecodeError:
-                                    st.write(content)
-                                    ai_response = AIMessage(content=content)
-                                    current_messages.append(ai_response)
-                                    save_message(st.session_state.current_chat_id, "assistant", content, temperature)
-                            else:
-                                st.write(content)
-                                ai_response = AIMessage(content=content)
-                                current_messages.append(ai_response)
-                                save_message(st.session_state.current_chat_id, "assistant", content, temperature)
-                        except Exception as e:
-                            st.error(f"Ошибка при обработке структурированного ответа: {str(e)}")
+                    # Определяем тему запроса пользователя
+                    print(user_input_q)
+                    topic_result = detect_topic(user_input_q)
+                    st.info(f"Определённая тема: {topic_result['topic_name']} "
+                            f"(код {topic_result['topic_code']}, уверенность: {topic_result['confidence']:.2f})\n"
+                            f"Причина: {topic_result['reasoning']}")
+
+                    # Используем код темы для RAG-ветки
+                    if topic_result["topic_code"] != 9:
+                        # Если тема определена, запускаем RAG-ветку с фильтром по теме
+                        res = retrieve.retrieve(user_input_q, topic_result["topic_code"])
+
+                        max_score = max([match["score"] for match in res["matches"]]) if res["matches"] else 0
+                        SIMILARITY_THRESHOLD = 0.55
+
+                        if not res["matches"] or max_score < SIMILARITY_THRESHOLD:
+                            human_msg = HumanMessage(content=user_input)
+                            save_message(st.session_state.current_chat_id, "user", human_msg, temperature)
+                            current_messages.append(human_msg)
+                            fallback_msg = "❗️К сожалению, в нашей базе данных нет ответа на этот вопрос. Я обращаюсь к открытым источникам..."
+                            st.write(fallback_msg)
+                            ai_notice = AIMessage(content=fallback_msg)
+                            current_messages.append(ai_notice)
+                            save_message(st.session_state.current_chat_id, "assistant", fallback_msg, temperature)
+
                             response = st.session_state.llm.invoke(current_messages)
                             st.write(response.content)
                             ai_response = AIMessage(content=response.content)
                             current_messages.append(ai_response)
                             save_message(st.session_state.current_chat_id, "assistant", response.content, temperature)
+                            update_chat_last_active(st.session_state.current_chat_id)
+                            st.stop()
                     else:
+                        # Если тема не определена, ищем по всей базе
+                        res = retrieve.retrieve(user_input_q)
+
+                        max_score = max([match["score"] for match in res["matches"]]) if res["matches"] else 0
+                        SIMILARITY_THRESHOLD = 0.55
+
+                        if not res["matches"] or max_score < SIMILARITY_THRESHOLD:
+                            fallback_msg = "❗️Не удалось найти информацию в базе. Я обращаюсь к открытым источникам..."
+                            st.write(fallback_msg)
+                            ai_notice = AIMessage(content=fallback_msg)
+                            current_messages.append(ai_notice)
+                            save_message(st.session_state.current_chat_id, "assistant", fallback_msg, temperature)
+
+                            response = st.session_state.llm.invoke(current_messages)
+                            st.write(response.content)
+                            ai_response = AIMessage(content=response.content)
+                            current_messages.append(ai_response)
+                            save_message(st.session_state.current_chat_id, "assistant", response.content, temperature)
+                            update_chat_last_active(st.session_state.current_chat_id)
+                            st.stop()
+
+                    # --- RAG ответ ---
+                    parser = PydanticOutputParser(pydantic_object=ChatResponse)
+                    format_instructions = parser.get_format_instructions().replace("{", "{{").replace("}", "}}")
+                    system_message = (
+                        "Ты помощник, который отвечает на вопрос на основе текстов, которые тебе дадут. Не придумывай ничего, чего бы не было в текстах. "
+                        f"Используй следующий формат для ответа:\n{format_instructions}"
+                    )
+                    prompt_template = ChatPromptTemplate.from_messages([
+                        ("system", system_message),
+                        ("user", "{input}")
+                    ])
+                    st.session_state.debug_info = {
+                        "format_instructions": format_instructions,
+                        "system_message": system_message
+                    }
+                    try:
+
+                        res = retrieve.retrieve(user_input_q)
+                        first = res["matches"][0]["metadata"]["chunk_text"]
+                        second = res["matches"][1]["metadata"]["chunk_text"]
+                        third = res["matches"][2]["metadata"]["chunk_text"]
+                        fourth = res["matches"][3]["metadata"]["chunk_text"]
+                        fifth = res["matches"][4]["metadata"]["chunk_text"]
+                        rag_message = f"Ты должен отвечать ТОЛЬКО по данным тебе источникам (не придумывая ничего от себя если такой информации нет говори не знаю) в формате JSON со следующей структурой: answer: \"твой ответ на вопрос\", \"sources\": [{first}, {second}, {third}, {fourth}, {fifth}], \"confidence\": число от 0 до 1\n" + f"{user_input_q} - вопрос пользователя\n {first} - первый источник\n {second} - второй источник\n {third} - третий источник\n {fourth} - четвёртый источник\n {fifth} - пятый источник\n , note: \"примечание об источниках, если необходимо\""
+                        human_msg = HumanMessage(content=rag_message)
+                        current_messages.append(human_msg)
+                        save_message(st.session_state.current_chat_id, "user", user_input, temperature)
+                        response = st.session_state.llm.invoke(current_messages)
+                        content = response.content
+                        json_match = re.search(r'({.*})', content, re.DOTALL)
+                        if json_match:
+                            try:
+                                json_str = json_match.group(1)
+                                structured_data = json.loads(json_str)
+                                if "answer" not in structured_data:
+                                    structured_data["answer"] = content
+                                if "sources" not in structured_data:
+                                    structured_data["sources"] = []
+                                if "confidence" not in structured_data:
+                                    structured_data["confidence"] = 0.8
+                                if "note" not in structured_data:
+                                    structured_data["note"] = ""
+                                ai_response = AIMessage(content=structured_data["answer"])
+                                ai_response.structured_output = structured_data
+                                st.write(structured_data["answer"])
+                                if structured_data.get("note"):
+                                    with st.expander("Примечание"):
+                                        st.write(structured_data["note"])
+                                with st.expander("Структурированный ответ"):
+                                    st.json(structured_data)
+                                current_messages.pop()
+                                true_human_msg = HumanMessage(content=user_input)
+                                current_messages.append(true_human_msg)
+                                current_messages.append(ai_response)
+                                save_message(st.session_state.current_chat_id, "assistant", response.content, temperature, json.dumps(structured_data))
+                            except json.JSONDecodeError:
+                                st.write(content)
+                                ai_response = AIMessage(content=content)
+                                current_messages.append(ai_response)
+                                save_message(st.session_state.current_chat_id, "assistant", content, temperature)
+                        else:
+                            st.write(content)
+                            ai_response = AIMessage(content=content)
+                            current_messages.append(ai_response)
+                            save_message(st.session_state.current_chat_id, "assistant", content, temperature)
+                    except Exception as e:
+                        st.error(f"Ошибка при обработке структурированного ответа: {str(e)}")
                         response = st.session_state.llm.invoke(current_messages)
                         st.write(response.content)
                         ai_response = AIMessage(content=response.content)

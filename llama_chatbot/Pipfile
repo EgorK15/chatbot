@@ -4,13 +4,18 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
+sentence-transformers = "*"
+streamlit = "*"
 langchain = "*"
 langchain-openai = "*"
 openai = "*"
-streamlit = "*"
-sentence-transformers = "*"
-pinecone = "*"
-
+bertopic = "*"
+joblib = "*"
+requests = "*"
+pandas = "*"
+pydantic = "*"
+numpy = "*"
+pinecone = "==6.0.2"
 [dev-packages]
 
 [requires]
