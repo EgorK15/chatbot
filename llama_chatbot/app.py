@@ -348,16 +348,16 @@ if user_input:
                                 ai_response = AIMessage(content=structured_data["answer"])
                                 ai_response.structured_output = structured_data
                                 st.write(structured_data["answer"])
-                                if structured_data.get("note"):
-                                    with st.expander("Примечание"):
-                                        st.write(structured_data["note"])
-                                with st.expander("Структурированный ответ"):
-                                    st.json(structured_data)
+                                #if structured_data.get("note"):
+                                #    with st.expander("Примечание"):
+                                #        st.write(structured_data["note"])
+                                #with st.expander("Структурированный ответ"):
+                                #    st.json(structured_data)
                                 current_messages.pop()
                                 true_human_msg = HumanMessage(content=user_input)
                                 current_messages.append(true_human_msg)
                                 current_messages.append(ai_response)
-                                save_message(st.session_state.current_chat_id, "assistant", response.content, temperature, json.dumps(structured_data))
+                                save_message(st.session_state.current_chat_id, "assistant", structured_data["answer"], temperature)
                             except json.JSONDecodeError:
                                 st.write(content)
                                 ai_response = AIMessage(content=content)
