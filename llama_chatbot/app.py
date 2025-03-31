@@ -233,9 +233,12 @@ for message in current_messages:
 # Обработка нового сообщения пользователя
 user_input = st.chat_input("Введите ваше сообщение...")
 if user_input:
-    user_input_q = st.session_state.llm.invoke([{"role": "system",
-                                                 "content": "Ты являешься частью системы по ответам на вопросы. Пользователь даст тебе вопрос, который может быть плохо сформулирован. Твоя задача привести его к виду, где 1) Будут отсутствовать все лишние слова (междометия, слова паразиты и прочие) 2) Где будет чёткая формулировка, какую конкретно информацию надо найти"},
-                                                {"role": "user", "content": user_input}]).content
+    q_prompt = "Ты являешься частью системы по ответам на вопросы. Пользователь даст тебе вопрос, который может быть плохо сформулирован. Твоя задача привести его к виду, где 1) Будут отсутствовать все лишние слова (междометия, слова паразиты и прочие) 2) Где будет чёткая формулировка, какую конкретно информацию надо найти (опираясь на историю сообщений в том числе). Если непонятно, что искать, выведи максимально похожий запрос. В ответе должен быть только запрос, без пояснений и обоснований\n" + user_input
+    q_mes = HumanMessage(content=q_prompt)
+    current_messages.append(q_mes)
+    user_input_q = st.session_state.llm.invoke(current_messages).content
+    print(user_input_q)
+    current_messages.pop()
     #human_msg = HumanMessage(content=user_input)
     #current_messages.append(human_msg)
     #save_message(st.session_state.current_chat_id, "user", user_input, temperature)
@@ -247,6 +250,7 @@ if user_input:
             try:
                 if "llm" in st.session_state:
                     # Определяем тему запроса пользователя
+                    print(user_input_q)
                     topic_result = detect_topic(user_input_q)
                     st.info(f"Определённая тема: {topic_result['topic_name']} "
                             f"(код {topic_result['topic_code']}, уверенность: {topic_result['confidence']:.2f})\n"
@@ -279,7 +283,7 @@ if user_input:
                             st.stop()
                     else:
                         # Если тема не определена, ищем по всей базе
-                        res = retrieve.retrieve(user_input)
+                        res = retrieve.retrieve(user_input_q)
 
                         max_score = max([match["score"] for match in res["matches"]]) if res["matches"] else 0
                         SIMILARITY_THRESHOLD = 0.55
@@ -322,8 +326,7 @@ if user_input:
                         third = res["matches"][2]["metadata"]["chunk_text"]
                         fourth = res["matches"][3]["metadata"]["chunk_text"]
                         fifth = res["matches"][4]["metadata"]["chunk_text"]
-                        print(user_input_q)
-                        rag_message = f"Ты должен отвечать ТОЛЬКО по данным тебе источникам (не придумывая ничего от себя если такой информации нет говори не знаю) в формате JSON со следующей структурой: answer: \"твой ответ на вопрос\", \"sources\": [{first}, {second}, {third}, {fourth}, {fifth}], \"confidence\": число от 0 до 1\n" + f"{user_input} - вопрос пользователя\n {first} - первый источник\n {second} - второй источник\n {third} - третий источник\n {fourth} - четвёртый источник\n {fifth} - пятый источник\n , note: \"примечание об источниках, если необходимо\""
+                        rag_message = f"Ты должен отвечать ТОЛЬКО по данным тебе источникам (не придумывая ничего от себя если такой информации нет говори не знаю) в формате JSON со следующей структурой: answer: \"твой ответ на вопрос\", \"sources\": [{first}, {second}, {third}, {fourth}, {fifth}], \"confidence\": число от 0 до 1\n" + f"{user_input_q} - вопрос пользователя\n {first} - первый источник\n {second} - второй источник\n {third} - третий источник\n {fourth} - четвёртый источник\n {fifth} - пятый источник\n , note: \"примечание об источниках, если необходимо\""
                         human_msg = HumanMessage(content=rag_message)
                         current_messages.append(human_msg)
                         save_message(st.session_state.current_chat_id, "user", user_input, temperature)
