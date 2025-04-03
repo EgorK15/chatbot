@@ -1,0 +1,12 @@
+| No | Question                                                        | Answer            |
+|----|-----------------------------------------------------------------|-------------------|
+| 1  | Is Rectifier Technologies Ltd a public company?                 | Yes               |
+| 2  | Did the company's revenue increase in 2022 compared to 2021?    | Yes               |
+| 3  | What was the net profit for 2022?                               | $491,955          |
+| 4  | Were any dividends declared for the 2022 financial year?        | No                |
+| 5  | Who is the chairman of the board?                               | Mr. Ying Ming Wang|
+| 6  | How much was the loan received from ANZ?                        | $3,000,000 AUD    |
+| 7  | What amount of shares was written off in 2022?                  | $600,000          |
+| 8  | What was the total assets as of June 30, 2022?                  | $22,929,553       |
+| 9  | Does the company have significant liabilities from borrowings?  | Yes               |
+| 10 | Is the total assets as of June 30, 2022, $22,929,553?           | Yes               |
