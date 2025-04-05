@@ -6,10 +6,10 @@ from sentence_transformers import SentenceTransformer
 from pinecone import Pinecone
 
 # Инициализация Pinecone
-pc = Pinecone(api_key=os.environ["PINECONE_API_KEY"])  # Замените на ваш API-ключ
+pc = Pinecone(api_key=os.environ.get("PINECONE_API_KEY",'pcsk_2MHdUF_M8e8hZxWQN2NFvQ4CWhXvsyL7EwPzNpvmy7iYRCN8hpey5u1TvqHZJ89TjJmZUx'))  # Замените на ваш API-ключ
 
 # Подключение к индексу
-index_name = os.environ["INDEX_NAME"]
+index_name = os.environ.get("INDEX_NAME",'red-llama-bertopic')
 index = pc.Index(index_name)
 
 # Загрузка модели

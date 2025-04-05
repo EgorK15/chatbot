@@ -1,5 +1,4 @@
-# -*- coding: utf-8 -*-
-
+# -*- coding: u
 
 import streamlit as st
 from langchain_openai import ChatOpenAI
@@ -143,8 +142,13 @@ for message in current_messages:
 
 # Обработка нового сообщения пользователя
 user_input = st.chat_input("Введите ваше сообщение...")
+
+
+def detect_topic(user_input_q):
+    pass
+
+
 if user_input:
-    # Добавляем сообщение пользователя
     st.session_state.chat_manager.add_message(
         st.session_state.chat_manager.current_chat_id,
         "user",
@@ -152,6 +156,14 @@ if user_input:
         temperature
     )
     
+    q_prompt = "Ты являешься частью системы по ответам на вопросы. Пользователь даст тебе вопрос, который может быть плохо сформулирован. Твоя задача привести его к виду, где 1) Будут отсутствовать все лишние слова (междометия, слова паразиты и прочие) 2) Где будет чёткая формулировка, какую конкретно информацию надо найти (опираясь на историю сообщений в том числе). Если непонятно, что искать, выведи максимально похожий запрос. В ответе должен быть только запрос, без пояснений и обоснований\n" + user_input
+    q_mes = HumanMessage(content=q_prompt)
+    current_messages.append(q_mes)
+    user_input_q = st.session_state.llm.invoke(current_messages).content
+    print(user_input_q)
+    current_messages.pop()
+    
+    update_chat_last_active(st.session_state.current_chat_id)
     with st.chat_message("user"):
         st.write(user_input)
     
@@ -160,6 +172,7 @@ if user_input:
             try:
                 if "llm" in st.session_state:
                     # Определяем тему запроса пользователя
+                    print(user_input_q)
                     topic_result = detect_topic_combined(user_input)
                     st.info(f"Определённая тема: {topic_result['topic_name']} "
                            f"(код {topic_result['topic']}, уверенность: {topic_result['confidence']:.2f})\n"
@@ -168,7 +181,7 @@ if user_input:
                     # Используем код темы для RAG-ветки
                     if topic_result["topic"] != 9:
                         # Если тема определена, запускаем RAG-ветку с фильтром по теме
-                        res = retrieve.retrieve(user_input, topic_result["topic"])
+                        res = retrieve.retrieve(user_input_q, topic_result["topic"])
 
                         max_score = max([match["score"] for match in res["matches"]]) if res["matches"] else 0
                         SIMILARITY_THRESHOLD = 0.55
@@ -246,7 +259,8 @@ if user_input:
                                     structured_data["confidence"] = 0.8
                                 if "note" not in structured_data:
                                     structured_data["note"] = ""
-                                
+                                ai_response = AIMessage(content=structured_data["answer"])
+                                ai_response.structured_output = structured_data
                                 st.write(structured_data["answer"])
                                 if structured_data.get("note"):
                                     with st.expander("Примечание"):

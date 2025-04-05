@@ -24,5 +24,8 @@ def config_me ():
     with open(path_me('llama.config'), 'r') as file:
         api_base = file.readline().strip()
         my_model = file.readline().strip()
-        API_KEY = file.readline().strip()    
-    return API_KEY, api_base, my_model
+        API_KEY = file.readline().strip()   
+        YOUR_API_KEY = file.readline().strip()
+        index_name = file.readline().strip()
+ 
+    return API_KEY, api_base, my_model, YOUR_API_KEY, index_name
