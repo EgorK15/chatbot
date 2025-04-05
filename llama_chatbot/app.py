@@ -17,6 +17,7 @@ from db import (create_tables, save_message, get_chat_messages, archive_chat,
                 archive_messages)
 import retrieve
 from routing import detect_topic_combined
+from chat_manager import ChatManager
 
 # Инициализируем таблицы базы данных
 create_tables()
@@ -31,139 +32,51 @@ class ChatResponse(BaseModel):
 # Настройка заголовка приложения
 st.title('Llama Chatbot')
 
-# Инициализация структуры для хранения нескольких чатов
-if "chat_sessions" not in st.session_state:
-    st.session_state.chat_sessions = {}
-    stored_chats = get_chats()
-    if stored_chats:
-        # Загружаем сохраненные чаты из БД
-        for chat in stored_chats:
-            chat_id, name, created_at, last_active, status, model_name_db, temp = chat
-            # Если чат архивирован, скрываем его (не загружаем в список)
-            if status == 'archived':
-                continue
-            messages = get_chat_messages(chat_id)
-            msg_objects = []
-            for row in messages:
-                role, content, message_temperature, structured_output = row
-                if role == "user":
-                    msg_objects.append(HumanMessage(content=content))
-                else:
-                    ai_msg = AIMessage(content=content)
-                    if structured_output:
-                        try:
-                            ai_msg.structured_output = json.loads(structured_output)
-                        except Exception:
-                            pass
-                    msg_objects.append(ai_msg)
-            st.session_state.chat_sessions[chat_id] = {
-                "name": name,
-                "created_at": created_at,
-                "status": status,
-                "messages": msg_objects
-            }
-        # Если у нас остались чаты, выбираем первый как текущий
-        if st.session_state.chat_sessions:
-            st.session_state.current_chat_id = list(st.session_state.chat_sessions.keys())[0]
-        else:
-            # Если все чаты были archived, создаем новый
-            first_chat_id = str(uuid.uuid4())
-            created_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-            st.session_state.chat_sessions[first_chat_id] = {
-                "name": "Новый чат",
-                "messages": [],
-                "created_at": created_at,
-                "status": "active"
-            }
-            st.session_state.current_chat_id = first_chat_id
-            save_chat(first_chat_id, "Новый чат", created_at)
-    else:
-        # Если нет сохраненных чатов, создаем новый
-        first_chat_id = str(uuid.uuid4())
-        created_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-        st.session_state.chat_sessions[first_chat_id] = {
-            "name": "Новый чат",
-            "messages": [],
-            "created_at": created_at,
-            "status": "active"
-        }
-        st.session_state.current_chat_id = first_chat_id
-        save_chat(first_chat_id, "Новый чат", created_at)
-
-# Функция для создания нового чата
-def create_new_chat():
-    chat_id = str(uuid.uuid4())
-    created_at = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
-    st.session_state.chat_sessions[chat_id] = {
-        "name": f"Новый чат {len(st.session_state.chat_sessions) + 1}",
-        "messages": [],
-        "created_at": created_at,
-        "status": "active"
-    }
-    st.session_state.current_chat_id = chat_id
-    save_chat(chat_id, st.session_state.chat_sessions[chat_id]["name"], created_at)
-
-# Функция для удаления текущего чата
-def delete_current_chat():
-    current_chat = st.session_state.current_chat_id
-    archive_messages(current_chat)  # Архивируем сообщения
-    archive_chat(current_chat)      # Архивируем чат
-    del st.session_state.chat_sessions[current_chat]
-    if st.session_state.chat_sessions:
-        st.session_state.current_chat_id = list(st.session_state.chat_sessions.keys())[0]
-    else:
-        create_new_chat()
-
-# Функция для переименования текущего чата
-def rename_current_chat(new_name):
-    if new_name:
-        st.session_state.chat_sessions[st.session_state.current_chat_id]["name"] = new_name
-        update_chat_name(st.session_state.current_chat_id, new_name)
+# Инициализация ChatManager
+if "chat_manager" not in st.session_state:
+    st.session_state.chat_manager = ChatManager()
 
 # Боковая панель для настроек
 with st.sidebar:
     st.header("Чаты")
-    chat_options = {chat_id: f"{chat_data['name']} ({chat_data['created_at']})"
-                    for chat_id, chat_data in st.session_state.chat_sessions.items()}
-    selected_chat = st.selectbox(
-        "Выберите чат",
-        options=list(chat_options.keys()),
-        format_func=lambda x: chat_options[x],
-        index=list(chat_options.keys()).index(st.session_state.current_chat_id)
-    )
-    if selected_chat != st.session_state.current_chat_id:
-        st.session_state.current_chat_id = selected_chat
-        messages = get_chat_messages(selected_chat)
-        msg_objects = []
-        for row in messages:
-            role, content, message_temperature, structured_output = row
-            if role == "user":
-                msg_objects.append(HumanMessage(content=content))
-            else:
-                ai_msg = AIMessage(content=content)
-                if structured_output:
-                    try:
-                        ai_msg.structured_output = json.loads(structured_output)
-                    except Exception:
-                        pass
-                msg_objects.append(ai_msg)
-        st.session_state.chat_sessions[selected_chat]["messages"] = msg_objects
-        st.rerun()
-    col1, col2 = st.columns(2)
+    # Получаем список чатов из ChatManager
+    chat_options = st.session_state.chat_manager.get_all_chats()
+    
+    if chat_options:
+        selected_chat = st.selectbox(
+            "Выберите чат",
+            options=list(chat_options.keys()),
+            format_func=lambda x: f"{chat_options[x]['name']} ({chat_options[x]['created_at']})",
+            index=list(chat_options.keys()).index(st.session_state.chat_manager.current_chat_id)
+        )
+        if selected_chat != st.session_state.chat_manager.current_chat_id:
+            st.session_state.chat_manager.current_chat_id = selected_chat
+            st.rerun()
+
+    # Настраиваем колонки с разной шириной
+    col1, col2, col3 = st.columns([0.9, 1, 1.1])  # Первая колонка 90%, вторая 100%, третья 110%
     with col1:
         if st.button("Новый чат"):
-            create_new_chat()
+            st.session_state.chat_manager.create_chat()
             st.rerun()
     with col2:
         if st.button("Удалить чат"):
-            delete_current_chat()
+            st.session_state.chat_manager.archive_chat(st.session_state.chat_manager.current_chat_id)
             st.rerun()
+    with col3:
+        if st.button("Очистить чат"):
+            st.session_state.chat_manager.clear_chat(st.session_state.chat_manager.current_chat_id)
+            st.rerun()
+
+    # Получаем информацию о текущем чате
+    current_chat = st.session_state.chat_manager.get_chat_info(st.session_state.chat_manager.current_chat_id)
     new_chat_name = st.text_input(
         "Переименовать чат",
-        value=st.session_state.chat_sessions[st.session_state.current_chat_id]["name"]
+        value=current_chat["name"] if current_chat else "Новый чат"
     )
-    if new_chat_name != st.session_state.chat_sessions[st.session_state.current_chat_id]["name"]:
-        rename_current_chat(new_chat_name)
+    if current_chat and new_chat_name != current_chat["name"]:
+        st.session_state.chat_manager.rename_chat(st.session_state.chat_manager.current_chat_id, new_chat_name)
+
     st.divider()
     st.header("Настройки API")
     base = os.environ.get("OPENAI_API_BASE", "base_url")
@@ -176,15 +89,11 @@ with st.sidebar:
     api_base = st.text_input("API URL", value=base)
     model_name = st.text_input("Название модели", value=model)
     temperature = st.slider("Temperature", min_value=0.0, max_value=2.0, value=float(temp), step=0.1)
-    # Чекбокс "Использовать RAG" удалён – выбор определяется автоматически
+
     st.divider()
     st.header("Настройки Pinecone DB")
-    pinecone_db_name = st.text_input("Имя Pinecone DB", value=os.environ.get("PINECONE_INDEX_NAME", ""))
+    pinecone_db_name = st.text_input("Имя Pinecone DB", value=os.environ.get("INDEX_NAME", ""))
     pinecone_api_key = st.text_input("Pinecone API ключ", value=os.environ.get("PINECONE_API_KEY", ""), type="password")
-    if st.button("Очистить текущий чат"):
-        archive_messages(st.session_state.current_chat_id)
-        st.session_state.chat_sessions[st.session_state.current_chat_id]["messages"] = []
-        st.rerun()
 
 # Конфигурация клиента LLM
 api_changed = (
@@ -202,6 +111,8 @@ if api_changed:
     os.environ["OPENAI_API_KEY"] = api_key
     os.environ["OPENAI_API_BASE"] = api_base
     os.environ["MODEL_NAME"] = model_name
+    os.environ["INDEX_NAME"] = pinecone_db_name
+    os.environ["PINECONE_API_KEY"] = pinecone_api_key
     try:
         st.session_state.llm = ChatOpenAI(
             model_name=model_name,
@@ -213,8 +124,10 @@ if api_changed:
     except Exception as e:
         st.sidebar.error(f"Ошибка настройки API: {str(e)}")
 
-# Отображение истории сообщений текущего чата
-current_messages = st.session_state.chat_sessions[st.session_state.current_chat_id]["messages"]
+# После получения истории сообщений
+current_messages = st.session_state.chat_manager.get_chat_history(st.session_state.chat_manager.current_chat_id)
+st.sidebar.write(f"Debug: Found {len(current_messages)} messages in current chat")
+
 for message in current_messages:
     if isinstance(message, HumanMessage):
         with st.chat_message("user"):
@@ -231,12 +144,17 @@ for message in current_messages:
 # Обработка нового сообщения пользователя
 user_input = st.chat_input("Введите ваше сообщение...")
 if user_input:
-    human_msg = HumanMessage(content=user_input)
-    current_messages.append(human_msg)
-    save_message(st.session_state.current_chat_id, "user", user_input, temperature)
-    update_chat_last_active(st.session_state.current_chat_id)
+    # Добавляем сообщение пользователя
+    st.session_state.chat_manager.add_message(
+        st.session_state.chat_manager.current_chat_id,
+        "user",
+        user_input,
+        temperature
+    )
+    
     with st.chat_message("user"):
         st.write(user_input)
+    
     with st.chat_message("assistant"):
         with st.spinner("Думаю..."):
             try:
@@ -258,25 +176,38 @@ if user_input:
                         if not res["matches"] or max_score < SIMILARITY_THRESHOLD:
                             fallback_msg = "❗️К сожалению, в нашей базе данных нет ответа на этот вопрос. Я обращаюсь к открытым источникам..."
                             st.write(fallback_msg)
-                            ai_notice = AIMessage(content=fallback_msg)
-                            current_messages.append(ai_notice)
-                            save_message(st.session_state.current_chat_id, "assistant", fallback_msg, temperature)
+                            st.session_state.chat_manager.add_message(
+                                st.session_state.chat_manager.current_chat_id,
+                                "assistant",
+                                fallback_msg,
+                                temperature
+                            )
 
+                            current_messages = st.session_state.chat_manager.get_chat_history(
+                                st.session_state.chat_manager.current_chat_id
+                            )
                             response = st.session_state.llm.invoke(current_messages)
                             st.write(response.content)
-                            ai_response = AIMessage(content=response.content)
-                            current_messages.append(ai_response)
-                            save_message(st.session_state.current_chat_id, "assistant", response.content, temperature)
-                            update_chat_last_active(st.session_state.current_chat_id)
+                            st.session_state.chat_manager.add_message(
+                                st.session_state.chat_manager.current_chat_id,
+                                "assistant",
+                                response.content,
+                                temperature
+                            )
                             st.stop()
                     else:
                         # Если тема не определена или это общий диалог, используем LLM напрямую
+                        current_messages = st.session_state.chat_manager.get_chat_history(
+                            st.session_state.chat_manager.current_chat_id
+                        )
                         response = st.session_state.llm.invoke(current_messages)
                         st.write(response.content)
-                        ai_response = AIMessage(content=response.content)
-                        current_messages.append(ai_response)
-                        save_message(st.session_state.current_chat_id, "assistant", response.content, temperature)
-                        update_chat_last_active(st.session_state.current_chat_id)
+                        st.session_state.chat_manager.add_message(
+                            st.session_state.chat_manager.current_chat_id,
+                            "assistant",
+                            response.content,
+                            temperature
+                        )
                         st.stop()
 
                     # --- RAG ответ ---
@@ -290,10 +221,7 @@ if user_input:
                         ("system", system_message),
                         ("user", "{input}")
                     ])
-                    st.session_state.debug_info = {
-                        "format_instructions": format_instructions,
-                        "system_message": system_message
-                    }
+                    
                     try:
                         first = res["matches"][0]["metadata"]["chunk_text"]
                         second = res["matches"][1]["metadata"]["chunk_text"]
@@ -318,39 +246,59 @@ if user_input:
                                     structured_data["confidence"] = 0.8
                                 if "note" not in structured_data:
                                     structured_data["note"] = ""
-                                ai_response = AIMessage(content=structured_data["answer"])
-                                ai_response.structured_output = structured_data
+                                
                                 st.write(structured_data["answer"])
                                 if structured_data.get("note"):
                                     with st.expander("Примечание"):
                                         st.write(structured_data["note"])
                                 with st.expander("Структурированный ответ"):
                                     st.json(structured_data)
-                                current_messages.append(ai_response)
-                                save_message(st.session_state.current_chat_id, "assistant", response.content, temperature, json.dumps(structured_data))
+                                
+                                st.session_state.chat_manager.add_message(
+                                    st.session_state.chat_manager.current_chat_id,
+                                    "assistant",
+                                    structured_data["answer"],
+                                    temperature,
+                                    structured_data
+                                )
                             except json.JSONDecodeError:
                                 st.write(content)
-                                ai_response = AIMessage(content=content)
-                                current_messages.append(ai_response)
-                                save_message(st.session_state.current_chat_id, "assistant", content, temperature)
+                                st.session_state.chat_manager.add_message(
+                                    st.session_state.chat_manager.current_chat_id,
+                                    "assistant",
+                                    content,
+                                    temperature
+                                )
                         else:
                             st.write(content)
-                            ai_response = AIMessage(content=content)
-                            current_messages.append(ai_response)
-                            save_message(st.session_state.current_chat_id, "assistant", content, temperature)
+                            st.session_state.chat_manager.add_message(
+                                st.session_state.chat_manager.current_chat_id,
+                                "assistant",
+                                content,
+                                temperature
+                            )
                     except Exception as e:
                         st.error(f"Ошибка при обработке структурированного ответа: {str(e)}")
+                        current_messages = st.session_state.chat_manager.get_chat_history(
+                            st.session_state.chat_manager.current_chat_id
+                        )
                         response = st.session_state.llm.invoke(current_messages)
                         st.write(response.content)
-                        ai_response = AIMessage(content=response.content)
-                        current_messages.append(ai_response)
-                        save_message(st.session_state.current_chat_id, "assistant", response.content, temperature)
-                    update_chat_last_active(st.session_state.current_chat_id)
+                        st.session_state.chat_manager.add_message(
+                            st.session_state.chat_manager.current_chat_id,
+                            "assistant",
+                            response.content,
+                            temperature
+                        )
                 else:
                     raise Exception("LLM не настроен")
             except Exception as e:
                 st.error(f"Ошибка при получении ответа: {str(e)}")
-                st.write("Это тестовый ответ, так как произошла ошибка.")
-                ai_response = AIMessage(content="Это тестовый ответ, так как произошла ошибка.")
-                current_messages.append(ai_response)
-                save_message(st.session_state.current_chat_id, "assistant", "Это тестовый ответ, так как произошла ошибка.", temperature)
+                error_msg = "Это тестовый ответ, так как произошла ошибка."
+                st.write(error_msg)
+                st.session_state.chat_manager.add_message(
+                    st.session_state.chat_manager.current_chat_id,
+                    "assistant",
+                    error_msg,
+                    temperature
+                )
