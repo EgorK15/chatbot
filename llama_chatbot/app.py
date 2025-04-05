@@ -1,4 +1,4 @@
-# -*- coding: u
+# -*- coding: utf-8 -*-
 
 import streamlit as st
 from langchain_openai import ChatOpenAI
@@ -23,7 +23,7 @@ create_tables()
 
 # Определение структуры вывода с помощью Pydantic с дополнительным полем note
 class ChatResponse(BaseModel):
-    answer: str = Field(description="Ответ на вопрос пользователя")
+    content: str = Field(description="Ответ на вопрос пользователя")
     sources: list = Field(description="Источники информации, использованные для ответа", default_factory=list)
     confidence: float = Field(description="Уровень уверенности в ответе от 0 до 1", ge=0, le=1)
     note: str = Field(description="Примечание об источниках, если необходимо", default="")
@@ -40,7 +40,7 @@ with st.sidebar:
     st.header("Чаты")
     # Получаем список чатов из ChatManager
     chat_options = st.session_state.chat_manager.get_all_chats()
-    
+
     if chat_options:
         selected_chat = st.selectbox(
             "Выберите чат",
@@ -94,6 +94,7 @@ with st.sidebar:
     pinecone_db_name = st.text_input("Имя Pinecone DB", value=os.environ.get("INDEX_NAME", ""))
     pinecone_api_key = st.text_input("Pinecone API ключ", value=os.environ.get("PINECONE_API_KEY", ""), type="password")
 
+
 # Конфигурация клиента LLM
 api_changed = (
     "llm" not in st.session_state or
@@ -119,6 +120,7 @@ if api_changed:
             openai_api_key=api_key,
             openai_api_base=api_base
         )
+
         st.sidebar.success("API настроен успешно!")
     except Exception as e:
         st.sidebar.error(f"Ошибка настройки API: {str(e)}")
@@ -142,12 +144,6 @@ for message in current_messages:
 
 # Обработка нового сообщения пользователя
 user_input = st.chat_input("Введите ваше сообщение...")
-
-
-def detect_topic(user_input_q):
-    pass
-
-
 if user_input:
     st.session_state.chat_manager.add_message(
         st.session_state.chat_manager.current_chat_id,
@@ -155,25 +151,25 @@ if user_input:
         user_input,
         temperature
     )
-    
-    q_prompt = "Ты являешься частью системы по ответам на вопросы. Пользователь даст тебе вопрос, который может быть плохо сформулирован. Твоя задача привести его к виду, где 1) Будут отсутствовать все лишние слова (междометия, слова паразиты и прочие) 2) Где будет чёткая формулировка, какую конкретно информацию надо найти (опираясь на историю сообщений в том числе). Если непонятно, что искать, выведи максимально похожий запрос. В ответе должен быть только запрос, без пояснений и обоснований\n" + user_input
+    #Переформулирование запроса для рага. Помогает подтягивать контекст
+    q_prompt = "Ты являешься частью системы по ответам на вопросы. Пользователь даст тебе вопрос, который может быть плохо сформулирован. Твоя задача привести его к виду, где 1) Будут отсутствовать все лишние слова (междометия, слова паразиты и прочие) 2) Где будет чёткая формулировка, какую конкретно информацию надо найти (опираясь на историю сообщений в том числе). Если непонятно, что искать, выведи максимально похожий запрос. Если речь идёт о каких-то финансовых отчётностях постарайся упомянуть имя компании.  В ответе должен быть только запрос, без пояснений и обоснований\n" + user_input
     q_mes = HumanMessage(content=q_prompt)
     current_messages.append(q_mes)
     user_input_q = st.session_state.llm.invoke(current_messages).content
     print(user_input_q)
     current_messages.pop()
-    
-    update_chat_last_active(st.session_state.current_chat_id)
+
+    #update_chat_last_active(st.session_state.current_chat_id)
     with st.chat_message("user"):
         st.write(user_input)
-    
+
     with st.chat_message("assistant"):
         with st.spinner("Думаю..."):
             try:
                 if "llm" in st.session_state:
                     # Определяем тему запроса пользователя
                     print(user_input_q)
-                    topic_result = detect_topic_combined(user_input)
+                    topic_result = detect_topic_combined(user_input_q)
                     st.info(f"Определённая тема: {topic_result['topic_name']} "
                            f"(код {topic_result['topic']}, уверенность: {topic_result['confidence']:.2f})\n"
                            f"Причина: {topic_result['reasoning']}")
@@ -241,27 +237,30 @@ if user_input:
                         third = res["matches"][2]["metadata"]["chunk_text"]
                         fourth = res["matches"][3]["metadata"]["chunk_text"]
                         fifth = res["matches"][4]["metadata"]["chunk_text"]
-                        response = st.session_state.llm.invoke([
-                            {"role": "system", "content": f"Ты должен отвечать ТОЛЬКО по данным тебе источникам (не придумывая ничего от себя) в формате JSON со следующей структурой: answer: \"твой ответ на вопрос\", sources: [{first}, {second}, {third}, {fourth}, {fifth}], confidence: число от 0 до 1, note: \"примечание об источниках, если необходимо\""},
-                            {"role": "user", "content": f"{user_input} - вопрос пользователя\n {first} - первый источник\n {second} - второй источник\n {third} - третий источник\n {fourth} - четвёртый источник\n {fifth} - пятый источник\n"}
-                        ])
+                        rag_message = f"Ты должен отвечать ТОЛЬКО по данным тебе источникам (не придумывая ничего от себя если такой информации нет говори не знаю) в формате JSON со следующей структурой: content: \"твой ответ на вопрос\", \"sources\": [{first}, {second}, {third}, {fourth}, {fifth}], \"confidence\": число от 0 до 1\n" + f"{user_input} - вопрос пользователя\n {first} - первый источник\n {second} - второй источник\n {third} - третий источник\n {fourth} - четвёртый источник\n {fifth} - пятый источник\n , note: \"примечание об источниках, если необходимо\""
+
+                        human_msg = HumanMessage(content=rag_message)
+                        current_messages.append(human_msg)
+                        #save_message(st.session_state.current_chat_id, "user", user_input, temperature)
+                        structured_llm = st.session_state.llm.with_structured_output(ChatResponse, method="json_mode")
+                        response = structured_llm.invoke(current_messages)
                         content = response.content
                         json_match = re.search(r'({.*})', content, re.DOTALL)
                         if json_match:
                             try:
                                 json_str = json_match.group(1)
                                 structured_data = json.loads(json_str)
-                                if "answer" not in structured_data:
-                                    structured_data["answer"] = content
+                                if "content" not in structured_data:
+                                    structured_data["content"] = content
                                 if "sources" not in structured_data:
                                     structured_data["sources"] = []
                                 if "confidence" not in structured_data:
                                     structured_data["confidence"] = 0.8
                                 if "note" not in structured_data:
                                     structured_data["note"] = ""
-                                ai_response = AIMessage(content=structured_data["answer"])
+                                ai_response = AIMessage(content=structured_data["content"])
                                 ai_response.structured_output = structured_data
-                                st.write(structured_data["answer"])
+                                st.write(structured_data["content"])
                                 if structured_data.get("note"):
                                     with st.expander("Примечание"):
                                         st.write(structured_data["note"])
@@ -271,7 +270,7 @@ if user_input:
                                 st.session_state.chat_manager.add_message(
                                     st.session_state.chat_manager.current_chat_id,
                                     "assistant",
-                                    structured_data["answer"],
+                                    structured_data["content"],
                                     temperature,
                                     structured_data
                                 )
