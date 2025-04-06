@@ -168,11 +168,16 @@ if user_input:
             try:
                 if "llm" in st.session_state:
                     # Определяем тему запроса пользователя
-                    print(user_input_q)
+
                     topic_result = detect_topic_combined(user_input_q)
+                    if topic_result == -2 or topic_result == 2:
+                        user_input_q = st.session_state.llm.invoke(f"Переведи на английский: {user_input_q}").content
+                        print(user_input_q)
                     st.info(f"Определённая тема: {topic_result['topic_name']} "
                            f"(код {topic_result['topic']}, уверенность: {topic_result['confidence']:.2f})\n"
                            f"Причина: {topic_result['reasoning']}")
+
+
 
                     # Используем код темы для RAG-ветки
                     if topic_result["topic"] != 9:
@@ -239,11 +244,14 @@ if user_input:
                         fifth = res["matches"][4]["metadata"]["chunk_text"]
                         rag_message = f"Ты должен отвечать ТОЛЬКО по данным тебе источникам (не придумывая ничего от себя если такой информации нет говори не знаю) в формате JSON со следующей структурой: content: \"твой ответ на вопрос\", \"sources\": [{first}, {second}, {third}, {fourth}, {fifth}], \"confidence\": число от 0 до 1\n" + f"{user_input} - вопрос пользователя\n {first} - первый источник\n {second} - второй источник\n {third} - третий источник\n {fourth} - четвёртый источник\n {fifth} - пятый источник\n , note: \"примечание об источниках, если необходимо\""
 
+                        # Создаем временную копию сообщений для RAG запроса
+                        rag_messages = current_messages.copy()
                         human_msg = HumanMessage(content=rag_message)
-                        current_messages.append(human_msg)
-                        #save_message(st.session_state.current_chat_id, "user", user_input, temperature)
+                        rag_messages.append(human_msg)  # Добавляем только во временную копию
+
                         structured_llm = st.session_state.llm.with_structured_output(ChatResponse, method="json_mode")
-                        response = structured_llm.invoke(current_messages)
+                        response = structured_llm.invoke(rag_messages)  # Используем временную копию
+
                         content = response.content
                         json_match = re.search(r'({.*})', content, re.DOTALL)
                         if json_match:
@@ -296,6 +304,7 @@ if user_input:
                             st.session_state.chat_manager.current_chat_id
                         )
                         response = st.session_state.llm.invoke(current_messages)
+                        print(response.content)
                         st.write(response.content)
                         st.session_state.chat_manager.add_message(
                             st.session_state.chat_manager.current_chat_id,
