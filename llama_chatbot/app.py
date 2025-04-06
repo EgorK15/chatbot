@@ -11,12 +11,17 @@ import json
 import re
 import uuid
 import datetime
+import logging
 from db import (create_tables, save_message, get_chat_messages, archive_chat,
                 get_chats, save_chat, update_chat_last_active, update_chat_name,
                 archive_messages)
 import retrieve
 from routing import detect_topic_combined
 from chat_manager import ChatManager
+
+# Настройка логирования
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 # Инициализируем таблицы базы данных
 create_tables()
@@ -94,7 +99,6 @@ with st.sidebar:
     pinecone_db_name = st.text_input("Имя Pinecone DB", value=os.environ.get("INDEX_NAME", ""))
     pinecone_api_key = st.text_input("Pinecone API ключ", value=os.environ.get("PINECONE_API_KEY", ""), type="password")
 
-
 # Конфигурация клиента LLM
 api_changed = (
     "llm" not in st.session_state or
@@ -145,12 +149,19 @@ for message in current_messages:
 # Обработка нового сообщения пользователя
 user_input = st.chat_input("Введите ваше сообщение...")
 if user_input:
-    st.session_state.chat_manager.add_message(
-        st.session_state.chat_manager.current_chat_id,
-        "user",
-        user_input,
-        temperature
-    )
+    try:
+        st.session_state.chat_manager.add_message(
+            st.session_state.chat_manager.current_chat_id,
+            "user",
+            user_input,
+            temperature
+        )
+        # Обновляем время последней активности
+        update_chat_last_active(st.session_state.chat_manager.current_chat_id)
+    except Exception as e:
+        logger.error(f"Ошибка при сохранении сообщения пользователя: {e}")
+        st.error("Ошибка при сохранении сообщения")
+
     #Переформулирование запроса для рага. Помогает подтягивать контекст
     q_prompt = "Ты являешься частью системы по ответам на вопросы. Пользователь даст тебе вопрос, который может быть плохо сформулирован. Твоя задача привести его к виду, где 1) Будут отсутствовать все лишние слова (междометия, слова паразиты и прочие) 2) Где будет чёткая формулировка, какую конкретно информацию надо найти (опираясь на историю сообщений в том числе). Если непонятно, что искать, выведи максимально похожий запрос. Если речь идёт о каких-то финансовых отчётностях постарайся упомянуть имя компании.  В ответе должен быть только запрос, без пояснений и обоснований\n" + user_input
     q_mes = HumanMessage(content=q_prompt)
@@ -177,15 +188,44 @@ if user_input:
                            f"(код {topic_result['topic']}, уверенность: {topic_result['confidence']:.2f})\n"
                            f"Причина: {topic_result['reasoning']}")
 
-
-
                     # Используем код темы для RAG-ветки
                     if topic_result["topic"] != 9:
                         # Если тема определена, запускаем RAG-ветку с фильтром по теме
-                        res = retrieve.retrieve(user_input_q, topic_result["topic"])
+                        
+                        # Собираем контекст из предыдущих сообщений
+                        context = ""
+                        for msg in current_messages[-5:]:  # Берем последние 5 сообщений
+                            if isinstance(msg, HumanMessage):
+                                context += f"Вопрос: {msg.content}\n"
+                            else:
+                                context += f"Ответ: {msg.content}\n"
+                        
+                        try:
+                            # Используем TF-IDF только для темы -2, для остальных используем эмбеддинги
+                            use_tfidf = topic_result["topic"] == -2
+                            
+                            logger.info(f"Используем TF-IDF: {use_tfidf}, тема: {topic_result['topic']}, уверенность: {topic_result['confidence']:.2f}")
+                            
+                            res = retrieve.retrieve(
+                                query_text=user_input_q,
+                                context=context,
+                                topic_code=topic_result["topic"],
+                                use_tfidf=use_tfidf
+                            )
+                        except Exception as e:
+                            logger.warning(f"Ошибка при поиске: {str(e)}. Используем эмбеддинги...")
+                            # Если возникла ошибка, используем эмбеддинги
+                            res = retrieve.retrieve(
+                                query_text=user_input_q,
+                                topic_code=topic_result["topic"],
+                                use_tfidf=False
+                            )
 
                         max_score = max([match["score"] for match in res["matches"]]) if res["matches"] else 0
-                        SIMILARITY_THRESHOLD = 0.55
+                        # Используем более низкий порог для TF-IDF
+                        SIMILARITY_THRESHOLD = 0.2 if use_tfidf else 0.55
+                        
+                        logger.info(f"Максимальный score: {max_score:.4f}, порог: {SIMILARITY_THRESHOLD}")
 
                         if not res["matches"] or max_score < SIMILARITY_THRESHOLD:
                             fallback_msg = "❗️К сожалению, в нашей базе данных нет ответа на этот вопрос. Я обращаюсь к открытым источникам..."

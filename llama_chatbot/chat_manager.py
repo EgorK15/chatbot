@@ -24,7 +24,7 @@ class ChatManager:
             return
 
         for chat in stored_chats:
-            chat_id, name, created_at, last_active, status, model_name_db, temp = chat
+            chat_id, name, created_at, last_active, status, model_name_db, temp, topic = chat
             # Пропускаем архивированные чаты
             if status == 'archived':
                 continue
@@ -52,14 +52,15 @@ class ChatManager:
                 "status": status,
                 "messages": msg_objects,
                 "model_name": model_name_db,
-                "temperature": temp
+                "temperature": temp,
+                "topic": topic
             }
 
         # Устанавливаем текущий чат
         if self.chat_sessions:
             self.current_chat_id = list(self.chat_sessions.keys())[0]
 
-    def create_chat(self, name="Новый чат", model_name=None, temperature=None):
+    def create_chat(self, name="Новый чат", model_name=None, temperature=None, topic=None):
         """Создает новый чат"""
         from uuid import uuid4
         
@@ -72,10 +73,11 @@ class ChatManager:
             "created_at": created_at,
             "status": "active",
             "model_name": model_name,
-            "temperature": temperature
+            "temperature": temperature,
+            "topic": topic
         }
         
-        save_chat(chat_id, name, created_at, model_name, temperature)
+        save_chat(chat_id, name, created_at, model_name, temperature, topic=topic)
         self.current_chat_id = chat_id
         return chat_id
 
@@ -165,4 +167,20 @@ class ChatManager:
                 "created_at": info["created_at"]
             }
             for chat_id, info in self.chat_sessions.items()
-        } 
+        }
+
+    def update_topic(self, chat_id, topic):
+        """Обновляет тему чата"""
+        if chat_id not in self.chat_sessions:
+            return False
+            
+        self.chat_sessions[chat_id]["topic"] = topic
+        save_chat(
+            chat_id,
+            self.chat_sessions[chat_id]["name"],
+            self.chat_sessions[chat_id]["created_at"],
+            self.chat_sessions[chat_id]["model_name"],
+            self.chat_sessions[chat_id]["temperature"],
+            topic=topic
+        )
+        return True 
