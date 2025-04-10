@@ -4,6 +4,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 import numpy as np
 import re
+from tfidf_constants import TFIDF_CONFIG, RELEVANCE_THRESHOLDS
 
 class TopicClassifier:
     def __init__(self):
@@ -158,14 +159,8 @@ class TopicClassifier:
             r'^(?:эй|хей|хай|йоу)$',
         ]
         
-        # Инициализация TF-IDF векторизатора
-        self.vectorizer = TfidfVectorizer(
-            analyzer='word',
-            ngram_range=(1, 2),  # учитываем униграммы и биграммы
-            min_df=1,
-            stop_words=['и', 'в', 'на', 'с', 'по', 'для', 'за', 'от', 'к', 'о', 'об'],
-            lowercase=True
-        )
+        # Инициализация TF-IDF векторизатора с общими параметрами
+        self.vectorizer = TfidfVectorizer(**TFIDF_CONFIG)
         
         # Подготовка корпуса и векторизация
         self.prepare_corpus()
@@ -188,7 +183,6 @@ class TopicClassifier:
     
     def classify(self, query):
         """Классификация запроса"""
-        # Проверка на общие фразы
         if self.is_general_query(query):
             return {
                 "topic": 9,
@@ -197,21 +191,13 @@ class TopicClassifier:
                 "reasoning": "Обнаружена общая фраза или приветствие"
             }
         
-        # Векторизация запроса
         query_vector = self.vectorizer.transform([query])
-        
-        # Вычисление косинусного сходства
         similarities = cosine_similarity(query_vector, self.tfidf_matrix)[0]
-        
-        # Получение индекса наиболее похожего документа
         best_match_idx = np.argmax(similarities)
         best_score = similarities[best_match_idx]
         
-        # Определение темы
-        predicted_topic = self.topic_labels[best_match_idx]
-        
-        # Если уверенность низкая, возвращаем общий диалог
-        if best_score < 0.1:  # порог можно настроить
+        # Используем порог из констант
+        if best_score < RELEVANCE_THRESHOLDS['topic']:
             return {
                 "topic": 9,
                 "topic_name": "общий диалог",
@@ -219,6 +205,7 @@ class TopicClassifier:
                 "reasoning": "Низкая уверенность в определении темы, используем LLM"
             }
         
+        predicted_topic = self.topic_labels[best_match_idx]
         return {
             "topic": predicted_topic,
             "topic_name": self.topic_names[predicted_topic],

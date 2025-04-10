@@ -12,10 +12,16 @@ import re
 import uuid
 import datetime
 import logging
+from config import (
+    OPENAI_API_KEY, OPENAI_API_BASE, MODEL_NAME, 
+    TEMPERATURE, PINECONE_API_KEY, INDEX_NAME
+)
 from db import (create_tables, save_message, get_chat_messages, archive_chat,
                 get_chats, save_chat, update_chat_last_active, update_chat_name,
                 archive_messages)
-import retrieve
+from retrieve import retrieve as retrieve_docs, is_relevant
+from tfidf_retriever import get_tfidf_retriever
+from sentence_transformers import SentenceTransformer
 from routing import detect_topic_combined
 from chat_manager import ChatManager
 
@@ -83,21 +89,15 @@ with st.sidebar:
 
     st.divider()
     st.header("Настройки API")
-    base = os.environ.get("OPENAI_API_BASE", "base_url")
-    key = os.environ.get("OPENAI_API_KEY", "api_key")
-    model = os.environ.get("MODEL_NAME", "model")
-    temp = os.environ.get("TEMPERATURE", 0.7)
-    if temp == "":
-        temp = 0.7
-    api_key = st.text_input("API ключ", value=key, type="password")
-    api_base = st.text_input("API URL", value=base)
-    model_name = st.text_input("Название модели", value=model)
-    temperature = st.slider("Temperature", min_value=0.0, max_value=2.0, value=float(temp), step=0.1)
+    api_key = st.text_input("API ключ", value=OPENAI_API_KEY, type="password")
+    api_base = st.text_input("API URL", value=OPENAI_API_BASE)
+    model_name = st.text_input("Название модели", value=MODEL_NAME)
+    temperature = st.slider("Temperature", min_value=0.0, max_value=2.0, value=TEMPERATURE, step=0.1)
 
     st.divider()
     st.header("Настройки Pinecone DB")
-    pinecone_db_name = st.text_input("Имя Pinecone DB", value=os.environ.get("INDEX_NAME", ""))
-    pinecone_api_key = st.text_input("Pinecone API ключ", value=os.environ.get("PINECONE_API_KEY", ""), type="password")
+    pinecone_db_name = st.text_input("Имя Pinecone DB", value=INDEX_NAME)
+    pinecone_api_key = st.text_input("Pinecone API ключ", value=PINECONE_API_KEY, type="password")
 
 # Конфигурация клиента LLM
 api_changed = (
@@ -124,14 +124,16 @@ if api_changed:
             openai_api_key=api_key,
             openai_api_base=api_base
         )
-
+        if "embedding_model" not in st.session_state:
+            st.session_state.embedding_model = SentenceTransformer(
+                "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+            )
         st.sidebar.success("API настроен успешно!")
     except Exception as e:
         st.sidebar.error(f"Ошибка настройки API: {str(e)}")
 
 # После получения истории сообщений
 current_messages = st.session_state.chat_manager.get_chat_history(st.session_state.chat_manager.current_chat_id)
-st.sidebar.write(f"Debug: Found {len(current_messages)} messages in current chat")
 
 for message in current_messages:
     if isinstance(message, HumanMessage):
@@ -149,218 +151,161 @@ for message in current_messages:
 # Обработка нового сообщения пользователя
 user_input = st.chat_input("Введите ваше сообщение...")
 if user_input:
-    try:
+    # Сначала проверяем, является ли сообщение простым приветствием
+    greeting_patterns = [
+        r'^\s*(привет|здравствуй|добрый день|доброе утро|добрый вечер|хай|хей|йоу)\s*$',
+        r'^\s*(hi|hello|hey|good morning|good afternoon|good evening)\s*$'
+    ]
+    
+    if any(re.match(pattern, user_input.lower()) for pattern in greeting_patterns):
+        # Для приветствий пропускаем сложную обработку
+        with st.chat_message("user"):
+            st.write(user_input)
+
+        with st.chat_message("assistant"):
+            greeting_response = "Здравствуйте! Чем могу помочь?"
+            st.write(greeting_response)
+            st.session_state.chat_manager.add_message(
+                st.session_state.chat_manager.current_chat_id,
+                "assistant",
+                greeting_response,
+                temperature
+            )
+            st.stop()
+
+    # Для остальных сообщений продолжаем обычную обработку
+    # Отображаем запрос пользователя
+    with st.chat_message("user"):
+        st.write(user_input)
+        # Сохраняем сообщение пользователя в историю
         st.session_state.chat_manager.add_message(
             st.session_state.chat_manager.current_chat_id,
             "user",
             user_input,
             temperature
         )
-        # Обновляем время последней активности
-        update_chat_last_active(st.session_state.chat_manager.current_chat_id)
-    except Exception as e:
-        logger.error(f"Ошибка при сохранении сообщения пользователя: {e}")
-        st.error("Ошибка при сохранении сообщения")
 
-    #Переформулирование запроса для рага. Помогает подтягивать контекст
-    q_prompt = "Ты являешься частью системы по ответам на вопросы. Пользователь даст тебе вопрос, который может быть плохо сформулирован. Твоя задача привести его к виду, где 1) Будут отсутствовать все лишние слова (междометия, слова паразиты и прочие) 2) Где будет чёткая формулировка, какую конкретно информацию надо найти (опираясь на историю сообщений в том числе). Если непонятно, что искать, выведи максимально похожий запрос. Если речь идёт о каких-то финансовых отчётностях постарайся упомянуть имя компании.  В ответе должен быть только запрос, без пояснений и обоснований\n" + user_input
-    q_mes = HumanMessage(content=q_prompt)
-    current_messages.append(q_mes)
-    user_input_q = st.session_state.llm.invoke(current_messages).content
-    print(user_input_q)
-    current_messages.pop()
+    # Определяем тему запроса
+    topic_result = detect_topic_combined(user_input)
+    logger.info(f"Определённая тема: {topic_result['topic_name']} "
+                f"(код {topic_result['topic']}, уверенность: {topic_result['confidence']:.2f})\n"
+                f"Причина: {topic_result['reasoning']}")
 
-    #update_chat_last_active(st.session_state.current_chat_id)
-    with st.chat_message("user"):
-        st.write(user_input)
+    # Объединенный промпт для переформулировки и определения компании
+    combined_prompt = """Выполни следующие шаги:
 
-    with st.chat_message("assistant"):
-        with st.spinner("Думаю..."):
-            try:
-                if "llm" in st.session_state:
-                    # Определяем тему запроса пользователя
+1. Переформулируй запрос, убрав все лишние слова и сделав его более четким.
+2. Определи название компании из списка:
+   - Brave Bison
+   - Rectifier Technologies Ltd
+   - Starvest plc
+   
+Если в запросе упоминается "Rectifier Technologies" или "Rectifier", считай это как "Rectifier Technologies Ltd".
+Если компания не соответствует списку точно, укажи "unknown".
 
-                    topic_result = detect_topic_combined(user_input_q)
-                    if topic_result == -2 or topic_result == 2:
-                        user_input_q = st.session_state.llm.invoke(f"Переведи на английский: {user_input_q}").content
-                        print(user_input_q)
-                    st.info(f"Определённая тема: {topic_result['topic_name']} "
-                           f"(код {topic_result['topic']}, уверенность: {topic_result['confidence']:.2f})\n"
-                           f"Причина: {topic_result['reasoning']}")
+Формат ответа (строго JSON):
+{
+    "rephrased": "переформулированный запрос",
+    "company": "название компании или unknown"
+}
 
-                    # Используем код темы для RAG-ветки
-                    if topic_result["topic"] != 9:
-                        # Если тема определена, запускаем RAG-ветку с фильтром по теме
-                        
-                        # Собираем контекст из предыдущих сообщений
-                        context = ""
-                        for msg in current_messages[-5:]:  # Берем последние 5 сообщений
-                            if isinstance(msg, HumanMessage):
-                                context += f"Вопрос: {msg.content}\n"
-                            else:
-                                context += f"Ответ: {msg.content}\n"
-                        
-                        try:
-                            # Используем TF-IDF только для темы -2, для остальных используем эмбеддинги
-                            use_tfidf = topic_result["topic"] == -2
-                            
-                            logger.info(f"Используем TF-IDF: {use_tfidf}, тема: {topic_result['topic']}, уверенность: {topic_result['confidence']:.2f}")
-                            
-                            res = retrieve.retrieve(
-                                query_text=user_input_q,
-                                context=context,
-                                topic_code=topic_result["topic"],
-                                use_tfidf=use_tfidf
-                            )
-                        except Exception as e:
-                            logger.warning(f"Ошибка при поиске: {str(e)}. Используем эмбеддинги...")
-                            # Если возникла ошибка, используем эмбеддинги
-                            res = retrieve.retrieve(
-                                query_text=user_input_q,
-                                topic_code=topic_result["topic"],
-                                use_tfidf=False
-                            )
+Пример ответа:
+{
+    "rephrased": "revenue of Rectifier Technologies",
+    "company": "Rectifier Technologies Ltd"
+}
 
-                        max_score = max([match["score"] for match in res["matches"]]) if res["matches"] else 0
-                        # Используем более низкий порог для TF-IDF
-                        SIMILARITY_THRESHOLD = 0.2 if use_tfidf else 0.55
-                        
-                        logger.info(f"Максимальный score: {max_score:.4f}, порог: {SIMILARITY_THRESHOLD}")
+Запрос: {query}"""
 
-                        if not res["matches"] or max_score < SIMILARITY_THRESHOLD:
-                            fallback_msg = "❗️К сожалению, в нашей базе данных нет ответа на этот вопрос. Я обращаюсь к открытым источникам..."
-                            st.write(fallback_msg)
-                            st.session_state.chat_manager.add_message(
-                                st.session_state.chat_manager.current_chat_id,
-                                "assistant",
-                                fallback_msg,
-                                temperature
-                            )
+    # Поиск релевантной информации
+    with st.spinner(""):
+        try:
+            retriever = get_tfidf_retriever()
+            use_tfidf = topic_result["topic"] == -2
 
-                            current_messages = st.session_state.chat_manager.get_chat_history(
-                                st.session_state.chat_manager.current_chat_id
-                            )
-                            response = st.session_state.llm.invoke(current_messages)
-                            st.write(response.content)
-                            st.session_state.chat_manager.add_message(
-                                st.session_state.chat_manager.current_chat_id,
-                                "assistant",
-                                response.content,
-                                temperature
-                            )
-                            st.stop()
-                    else:
-                        # Если тема не определена или это общий диалог, используем LLM напрямую
-                        current_messages = st.session_state.chat_manager.get_chat_history(
-                            st.session_state.chat_manager.current_chat_id
-                        )
-                        response = st.session_state.llm.invoke(current_messages)
-                        st.write(response.content)
-                        st.session_state.chat_manager.add_message(
-                            st.session_state.chat_manager.current_chat_id,
-                            "assistant",
-                            response.content,
-                            temperature
-                        )
-                        st.stop()
+            # Перевод запроса (если тема -2)
+            if use_tfidf:
+                translation_response = st.session_state.llm.invoke(
+                    f"Переведи на английский: {user_input}"
+                )
+                final_query = translation_response.content
+                logger.info(f"Переведенный запрос: {final_query}")
+            else:
+                final_query = user_input
 
-                    # --- RAG ответ ---
-                    parser = PydanticOutputParser(pydantic_object=ChatResponse)
-                    format_instructions = parser.get_format_instructions().replace("{", "{{").replace("}", "}}")
-                    system_message = (
-                        "Ты помощник, который отвечает на вопрос на основе текстов, которые тебе дадут. Не придумывай ничего, чего бы не было в текстах. "
-                        f"Используй следующий формат для ответа:\n{format_instructions}"
-                    )
-                    prompt_template = ChatPromptTemplate.from_messages([
-                        ("system", system_message),
-                        ("user", "{input}")
-                    ])
-                    
-                    try:
-                        first = res["matches"][0]["metadata"]["chunk_text"]
-                        second = res["matches"][1]["metadata"]["chunk_text"]
-                        third = res["matches"][2]["metadata"]["chunk_text"]
-                        fourth = res["matches"][3]["metadata"]["chunk_text"]
-                        fifth = res["matches"][4]["metadata"]["chunk_text"]
-                        rag_message = f"Ты должен отвечать ТОЛЬКО по данным тебе источникам (не придумывая ничего от себя если такой информации нет говори не знаю) в формате JSON со следующей структурой: content: \"твой ответ на вопрос\", \"sources\": [{first}, {second}, {third}, {fourth}, {fifth}], \"confidence\": число от 0 до 1\n" + f"{user_input} - вопрос пользователя\n {first} - первый источник\n {second} - второй источник\n {third} - третий источник\n {fourth} - четвёртый источник\n {fifth} - пятый источник\n , note: \"примечание об источниках, если необходимо\""
+            query_text = f"{final_query}"
+            logger.info(f"Поисковый запрос: {query_text}")
 
-                        # Создаем временную копию сообщений для RAG запроса
-                        rag_messages = current_messages.copy()
-                        human_msg = HumanMessage(content=rag_message)
-                        rag_messages.append(human_msg)  # Добавляем только во временную копию
+            # Используем либо локальный TF-IDF поиск, либо Pinecone
+            if use_tfidf:
+                res = retriever.retrieve_local_tfidf_only(query_text)
+            else:
+                res = retriever.retrieve(
+                    query_text=query_text,
+                    context="",
+                    topic_code=topic_result["topic"],
+                    embedding_model=st.session_state.embedding_model
+                )
+            
+            # Логирование результатов
+            for match in res["matches"]:
+                logger.info(f"[RAG MATCH] Score: {match['score']:.4f}")
+                logger.info(f"[RAG TEXT] {match['metadata']['chunk_text'][:200]}")
+                logger.info(f"[RAG METADATA] topic_name: {match['metadata'].get('topic_name', 'не указано')}")
 
-                        structured_llm = st.session_state.llm.with_structured_output(ChatResponse, method="json_mode")
-                        response = structured_llm.invoke(rag_messages)  # Используем временную копию
-
-                        content = response.content
-                        json_match = re.search(r'({.*})', content, re.DOTALL)
-                        if json_match:
-                            try:
-                                json_str = json_match.group(1)
-                                structured_data = json.loads(json_str)
-                                if "content" not in structured_data:
-                                    structured_data["content"] = content
-                                if "sources" not in structured_data:
-                                    structured_data["sources"] = []
-                                if "confidence" not in structured_data:
-                                    structured_data["confidence"] = 0.8
-                                if "note" not in structured_data:
-                                    structured_data["note"] = ""
-                                ai_response = AIMessage(content=structured_data["content"])
-                                ai_response.structured_output = structured_data
-                                st.write(structured_data["content"])
-                                if structured_data.get("note"):
-                                    with st.expander("Примечание"):
-                                        st.write(structured_data["note"])
-                                with st.expander("Структурированный ответ"):
-                                    st.json(structured_data)
-                                
-                                st.session_state.chat_manager.add_message(
-                                    st.session_state.chat_manager.current_chat_id,
-                                    "assistant",
-                                    structured_data["content"],
-                                    temperature,
-                                    structured_data
-                                )
-                            except json.JSONDecodeError:
-                                st.write(content)
-                                st.session_state.chat_manager.add_message(
-                                    st.session_state.chat_manager.current_chat_id,
-                                    "assistant",
-                                    content,
-                                    temperature
-                                )
-                        else:
-                            st.write(content)
-                            st.session_state.chat_manager.add_message(
-                                st.session_state.chat_manager.current_chat_id,
-                                "assistant",
-                                content,
-                                temperature
-                            )
-                    except Exception as e:
-                        st.error(f"Ошибка при обработке структурированного ответа: {str(e)}")
-                        current_messages = st.session_state.chat_manager.get_chat_history(
-                            st.session_state.chat_manager.current_chat_id
-                        )
-                        response = st.session_state.llm.invoke(current_messages)
-                        print(response.content)
-                        st.write(response.content)
-                        st.session_state.chat_manager.add_message(
-                            st.session_state.chat_manager.current_chat_id,
-                            "assistant",
-                            response.content,
-                            temperature
-                        )
-                else:
-                    raise Exception("LLM не настроен")
-            except Exception as e:
-                st.error(f"Ошибка при получении ответа: {str(e)}")
-                error_msg = "Это тестовый ответ, так как произошла ошибка."
-                st.write(error_msg)
+            # Проверка релевантности найденных документов
+            if not is_relevant(res, use_tfidf):
+                logger.info("Релевантные документы не найдены, генерирую ответ через LLM")
+                response = st.session_state.llm.invoke(user_input)
+                with st.chat_message("assistant"):
+                    st.write(response.content)
                 st.session_state.chat_manager.add_message(
                     st.session_state.chat_manager.current_chat_id,
                     "assistant",
-                    error_msg,
+                    response.content,
                     temperature
                 )
+                st.stop()
+
+            # Формирование ответа на основе найденных документов
+            sources = [match["metadata"]["chunk_text"] for match in res["matches"][:5]]
+            sources_text = "\n".join(f"Источник {i+1}:\n{source}" for i, source in enumerate(sources))
+
+            # Специальный промпт для финансовых отчетов
+            if topic_result["topic"] == -2:
+                company_name = res["matches"][0]["metadata"].get("topic_name", "")
+                prompt = f"""Ты финансовый аналитик. Ответь на вопрос о компании {company_name}, используя ТОЛЬКО информацию из предоставленных источников.
+
+Вопрос: {user_input}
+
+Источники:
+{sources_text}
+
+Дай краткий и точный ответ, указывая конкретные цифры из источников."""
+            else:
+                # Промпт для других тем
+                prompt = f"""Ответь на вопрос, используя ТОЛЬКО информацию из предоставленных источников.
+
+Вопрос: {user_input}
+
+Источники:
+{sources_text}
+
+Дай структурированный ответ на основе источников."""
+
+            # Генерация ответа
+            response = st.session_state.llm.invoke(prompt)
+            with st.chat_message("assistant"):
+                st.write(response.content)
+            st.session_state.chat_manager.add_message(
+                st.session_state.chat_manager.current_chat_id,
+                "assistant",
+                response.content,
+                temperature
+            )
+            st.stop()
+
+        except Exception as e:
+            logger.error(f"Ошибка при поиске или генерации ответа: {str(e)}")
+            st.error("Произошла ошибка при обработке запроса")
+            st.stop()

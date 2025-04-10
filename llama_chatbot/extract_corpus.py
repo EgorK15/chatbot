@@ -1,73 +1,100 @@
+# -*- coding: utf-8 -*-
+
 import os
-import logging
 import pandas as pd
 from pinecone import Pinecone
-from pathlib import Path
-from dotenv import load_dotenv
+import logging
+from typing import List, Dict, Any
+from config import PINECONE_API_KEY, INDEX_NAME, DATA_DIR
+import json
 
-# Загрузка переменных окружения из .env файла
-load_dotenv()
-
-# Настройка логирования
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def extract_corpus():
-    """Извлекает корпус из Pinecone и сохраняет его в CSV файл"""
+BATCH_SIZE = 100
+CORPUS_METADATA_FILE = os.path.join(DATA_DIR, "corpus_metadata.json")
+TFIDF_METADATA_FILE = os.path.join(DATA_DIR, "tfidf_metadata.json")
+
+def validate_environment():
+    if not PINECONE_API_KEY:
+        raise ValueError("PINECONE_API_KEY не найден.")
+    if not INDEX_NAME:
+        raise ValueError("INDEX_NAME не найден.")
+    logger.info("Переменные окружения успешно загружены")
+
+def save_corpus_metadata(metadata: Dict[str, Any]) -> None:
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with open(CORPUS_METADATA_FILE, 'w') as f:
+        json.dump(metadata, f)
+    logger.info(f"Метаданные корпуса сохранены в {CORPUS_METADATA_FILE}")
+
+def extract_corpus(output_file: str = os.path.join(DATA_DIR, "corpus.csv")) -> None:
     try:
-        # Проверяем API ключ
-        api_key = os.environ.get("PINECONE_API_KEY")
-        if not api_key:
-            raise ValueError("PINECONE_API_KEY не установлен")
-        
-        # Инициализация Pinecone
-        pc = Pinecone(api_key=api_key)
-        index_name = os.environ.get("TFIDF_INDEX_NAME", 'red-llama-tf-idf')
-        logger.info(f"Подключение к индексу Pinecone: {index_name}")
-        index = pc.Index(index_name)
-        
-        # Получаем статистику индекса
+        validate_environment()
+
+        logger.info("Подключение к Pinecone...")
+        pc = Pinecone(api_key=PINECONE_API_KEY)
+        index = pc.Index(INDEX_NAME)
+
         stats = index.describe_index_stats()
-        logger.info(f"Статистика индекса: {stats}")
-        
-        # Получаем все вектора через query
-        texts = []
-        namespace = ""  # Используем пустой namespace
-        top_k = 1000  # Максимальное количество векторов за один запрос
-        
-        # Получаем вектора партиями
-        for offset in range(0, stats['total_vector_count'], top_k):
-            logger.info(f"Получение векторов с {offset} по {offset + top_k}")
-            results = index.query(
-                vector=[0] * stats['dimension'],  # Нулевой вектор для получения всех
-                top_k=top_k,
+        logger.info(f"Всего векторов в индексе: {stats.total_vector_count}")
+        logger.info(f"Размерность векторов: {stats.dimension}")
+        save_corpus_metadata({"dimension": stats.dimension})
+
+        all_ids = []
+        for ns in stats.namespaces:
+            response = index.query(
+                vector=[0.0] * stats.dimension,
+                top_k=stats.total_vector_count,
                 include_metadata=True,
-                namespace=namespace,
-                offset=offset
+                vector_id_prefix=ns
             )
-            
-            for match in results.matches:
-                if 'metadata' in match and 'chunk_text' in match['metadata']:
-                    texts.append(match['metadata']['chunk_text'])
+            for match in response.matches:
+                if hasattr(match, 'id'):
+                    all_ids.append(match.id)
+
+        logger.info(f"Получено {len(all_ids)} векторов")
+
+        rows = []
+        for i in range(0, len(all_ids), BATCH_SIZE):
+            batch_ids = all_ids[i:i + BATCH_SIZE]
+            results = index.fetch(ids=batch_ids)
+            for vector_id, vector_data in results.vectors.items():
+                metadata = getattr(vector_data, 'metadata', {})
+                chunk = metadata.get('chunk_text')
+                if chunk:
+                    rows.append({
+                        "chunk_text": chunk,
+                        "topic": metadata.get("topic", None),
+                        "source": metadata.get("source", "")
+                    })
+                else:
+                    logger.warning(f"Пропущен вектор без chunk_text: {vector_id}")
+
+        df = pd.DataFrame(rows).drop_duplicates(subset=['chunk_text'])
+
+        os.makedirs(DATA_DIR, exist_ok=True)
+
+        df.to_csv(output_file, index=False)
+        logger.info(f"Корпус сохранен в {output_file}")
+
+        tfidf_metadata = df.to_dict(orient="records")
+        if not isinstance(tfidf_metadata, list):
+            raise ValueError("tfidf_metadata должен быть списком словарей")
+        logger.info(f"Сохраняем {len(tfidf_metadata)} записей в tfidf_metadata.json")
+
+        with open(TFIDF_METADATA_FILE, "w", encoding="utf-8") as f:
+            json.dump(tfidf_metadata, f, ensure_ascii=False, indent=2)
+            if os.path.getsize(TFIDF_METADATA_FILE) == 0:
+                raise RuntimeError("tfidf_metadata.json оказался пустым после записи!")
+            else:
+                logger.info("Проверка пройдена: tfidf_metadata.json не пустой")
         
-        logger.info(f"Извлечено {len(texts)} текстов из метаданных")
-        
-        if texts:
-            # Создаем директорию data, если её нет
-            data_dir = Path("data")
-            data_dir.mkdir(exist_ok=True)
-            
-            # Сохраняем корпус в CSV
-            df = pd.DataFrame({'chunk_text': texts})
-            csv_path = data_dir / "corpus.csv"
-            df.to_csv(csv_path, index=False)
-            logger.info(f"Корпус сохранен в {csv_path}")
-        else:
-            logger.warning("Не найдено текстов в Pinecone")
-            
+        logger.info(f"TF-IDF метаданные сохранены в {TFIDF_METADATA_FILE}")
+
     except Exception as e:
         logger.error(f"Ошибка при извлечении корпуса: {e}")
         raise
 
 if __name__ == "__main__":
-    extract_corpus() 
+    extract_corpus()
