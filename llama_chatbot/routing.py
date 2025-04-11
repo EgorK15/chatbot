@@ -14,6 +14,17 @@ class TopicClassifier:
                 "rectifier", 
                 "brave bison", 
                 "starvest",
+                "revenue",
+                "financial",
+                "company",
+                "corporation",
+                "business",
+                "enterprise",
+                "firm",
+                "organization",
+                "revenue 2022",
+                "financial report",
+                "annual report"
             ],
             
             -1: [

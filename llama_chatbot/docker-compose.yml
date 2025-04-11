@@ -12,10 +12,13 @@ services:
       # Для сохранения данных между перезапусками
       - ./data:/app/data
     environment:
-
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - OPENAI_API_BASE=${OPENAI_API_BASE}
       - MODEL_NAME=${MODEL_NAME}
       - TEMPERATURE=${TEMPERATURE}
       - INDEX_NAME=${INDEX_NAME}
       - PINECONE_API_KEY=${PINECONE_API_KEY}
+
+volumes:
+  chatbot_data:
+    driver: local
