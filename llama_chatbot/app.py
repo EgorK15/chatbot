@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 import os
 import json
 import re
+from gmail_langgraph import search_emails_for_info
 import uuid
 import datetime
 import logging
@@ -223,7 +224,7 @@ if user_input:
 
                         max_score = max([match["score"] for match in res["matches"]]) if res["matches"] else 0
                         # Используем более низкий порог для TF-IDF
-                        SIMILARITY_THRESHOLD = 0.2 if use_tfidf else 0.55
+                        SIMILARITY_THRESHOLD = 0.2 if use_tfidf else 0.2
                         
                         logger.info(f"Максимальный score: {max_score:.4f}, порог: {SIMILARITY_THRESHOLD}")
 
@@ -352,6 +353,16 @@ if user_input:
                             response.content,
                             temperature
                         )
+                    email_dict = search_emails_for_info(user_input_q)
+                    print(email_dict)
+                    if email_dict["answer_bool"]:
+                        answer = email_dict["answer"]
+                        sources = " ".join(email_dict["sources"])
+                        st.info(f"Сообщение найдено в почтовом ящике. Ответ {answer}, источники {sources}")
+                        st.session_state.chat_manager.add_message(st.session_state.chat_manager.current_chat_id,
+                            "assistant",
+                            answer,
+                            temperature)
                 else:
                     raise Exception("LLM не настроен")
             except Exception as e:

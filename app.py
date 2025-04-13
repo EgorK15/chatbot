@@ -24,7 +24,7 @@ from tfidf_retriever import get_tfidf_retriever
 from sentence_transformers import SentenceTransformer
 from routing import detect_topic_combined
 from chat_manager import ChatManager
-
+from gmail_langgraph import search_emails_for_info
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -145,7 +145,7 @@ if user_input:
         r'^\s*(привет|здравствуй|добрый день|доброе утро|добрый вечер|хай|хей|йоу)\s*$',
         r'^\s*(hi|hello|hey|good morning|good afternoon|good evening)\s*$'
     ]
-
+    email_dict = search_emails_for_info(user_input)
     if any(re.match(pattern, user_input.lower()) for pattern in greeting_patterns):
         st.session_state.chat_manager.add_message(
             st.session_state.chat_manager.current_chat_id, "user", user_input, temperature
@@ -212,12 +212,29 @@ if user_input:
 
         if not is_relevant(res, use_tfidf):
             logger.info("Релевантные документы не найдены, генерирую ответ через LLM")
-            response = st.session_state.llm.invoke(user_input)
+            add = " "
+            if email_dict["answer_bool"]:
+                add = f"\n\nТакже учти, что {email_dict['answer']}"
+            response = st.session_state.llm.invoke(user_input + add)
             with st.chat_message("assistant"):
                 st.write(response.content)
             st.session_state.chat_manager.add_message(
                 st.session_state.chat_manager.current_chat_id, "assistant", response.content, temperature
             )
+            print(email_dict)
+            if email_dict["answer_bool"]:
+                answer = email_dict["answer"]
+                sources = " ".join(email_dict["messages"])
+                gmail_answer = "Упоминания найдены в почтовом ящике. В сообщениях (отправитель - тема - id):\n"
+                k = 1
+                for i in email_dict["messages"]:
+                    gmail_answer += f"\n{k}) {i}"
+                    k += 1
+                st.info(gmail_answer)
+                st.session_state.chat_manager.add_message(st.session_state.chat_manager.current_chat_id,
+                                                          "assistant",
+                                                          answer,
+                                                          temperature)
             st.stop()
 
         sources = [match["metadata"]["chunk_text"] for match in res["matches"][:40]]
@@ -226,29 +243,46 @@ if user_input:
         if topic_result["topic"] == -2:
             company_name = res["matches"][0]["metadata"].get("topic_name", "")
             prompt = f"""Ты финансовый аналитик. Ответь на вопрос о компании {company_name}, используя ТОЛЬКО информацию из предоставленных источников.
-
-Вопрос: {user_input}
-
-Источники:
-{sources_text}
-
-Дай краткий и точный ответ, указывая конкретные цифры из источников."""
+                    
+                    
+            Вопрос: {user_input}
+            
+            Источники:
+            {sources_text}
+            
+            Дай краткий и точный ответ, указывая конкретные цифры из источников."""
         else:
             prompt = f"""Ответь на вопрос, используя ТОЛЬКО информацию из архива документов (RAG).
 
-Вопрос: {user_input}
-
-Контекст:
-{sources_text}
-
-используя ТОЛЬКО информацию из архива документов (RAG)."""
-
+            Вопрос: {user_input}
+            
+            Контекст:
+            {sources_text}
+            
+            используя ТОЛЬКО информацию из архива документов (RAG)."""
+        if email_dict["answer_bool"]:
+            prompt += f"\n\nТакже учти, что {email_dict['answer']}"
         response = st.session_state.llm.invoke(prompt)
         with st.chat_message("assistant"):
             st.write(response.content)
         st.session_state.chat_manager.add_message(
             st.session_state.chat_manager.current_chat_id, "assistant", response.content, temperature
         )
+
+        print(email_dict)
+        if email_dict["answer_bool"]:
+            answer = email_dict["answer"]
+            sources = " ".join(email_dict["messages"])
+            gmail_answer = "Упоминания найдены в почтовом ящике. В сообщениях (отправитель - тема - id):\n"
+            k = 1
+            for i in email_dict["messages"]:
+                gmail_answer += f"\n{k}) {i}"
+                k+=1
+            st.info(gmail_answer)
+            st.session_state.chat_manager.add_message(st.session_state.chat_manager.current_chat_id,
+                                                      "assistant",
+                                                      answer,
+                                                      temperature)
         st.stop()
 
     except Exception as e:

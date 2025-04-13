@@ -9,7 +9,7 @@ from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
-
+import email
 
 # Load environment variables
 load_dotenv()
@@ -79,21 +79,22 @@ def analyze_node(state: AgentState) -> AgentState:
     # Create prompt with email data
     email_summaries = []
     sources = []
-
-    for i, email in enumerate(state["email_data"]):
-        sender = email.get("sender", "Unknown")
-        subject = email.get("subject", "Unknown")
-        body = email.get("snippet", "No content")
+    for i, emaill in enumerate(state["email_data"]):
+        sender = ''.join(part.decode(encoding or 'utf-8') if isinstance(part, bytes) else part for part, encoding in email.header.decode_header(emaill.get("sender", "Unknown")))
+        subject = ''.join(part.decode(encoding or 'utf-8') if isinstance(part, bytes) else part for part, encoding in email.header.decode_header(emaill.get("subject", "Unknown")))
+        body = " ".join(emaill.get("body","no body").replace("\xa0", " ").replace("\n", " ").strip().split())
+        body = body.replace("  ","")
 
         summary = f"Email {i+1}:\nFrom: {sender}\nSubject: {subject}\nContent: {body}\n"
         email_summaries.append(summary)
-        sources.append(f"{sender} - {subject}")
+        idd = emaill.get("id", "Unknown")
+        sources.append(f"{sender} - {subject} - {idd}")
 
     # Create system message
     enter = "\n\n"
     system_message = SystemMessage(content=f"""
     You are an email information retrieval assistant. Check the following emails for information related to the user's query. If there is information that answers the query, summarize it. If not, say "No relevant information found".
-    Your output must be in JSON  format:  answer (1 or 0), answer_txt, sources.
+    Your output must be in JSON  format:  answer (1 or 0), answer_txt, sources (numbers of emails).
     User Query: {state["query"]}
     
     Email Data:
@@ -108,13 +109,15 @@ def analyze_node(state: AgentState) -> AgentState:
     response = structured_llm.invoke(messages)
     answer_bool = response.answer
     answer = response.answer_txt
-    sources = response.sources
+    sources_true = []
+    for i in response.sources:
+        sources_true.append(sources[i-1])
     return {
         "messages": state["messages"],
         "query": state["query"],
         "email_data": state["email_data"],
         "answer": answer,
-        "sources": sources,
+        "sources": sources_true,
         "answer_bool": bool(answer_bool)
     }
 
