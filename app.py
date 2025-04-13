@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-
+from reflection_agent_lang_graph import get_reflective_answer
 import streamlit as st
 from langchain_openai import ChatOpenAI
 from langchain.schema import HumanMessage, AIMessage
@@ -216,11 +216,12 @@ if user_input:
             add = " "
             if email_dict["answer_bool"]:
                 add = f"\n\nТакже учти, что {email_dict['answer']}"
-            response = st.session_state.llm.invoke(user_input + add)
+            #response = st.session_state.llm.invoke(user_input + add)
+            response_str = get_reflective_answer(user_input+add)
             with st.chat_message("assistant"):
-                st.write(response.content)
+                st.write(response_str)
             st.session_state.chat_manager.add_message(
-                st.session_state.chat_manager.current_chat_id, "assistant", response.content, temperature
+                st.session_state.chat_manager.current_chat_id, "assistant", response_str, temperature
             )
             print(email_dict)
             gmail_answer = ""
@@ -268,11 +269,12 @@ if user_input:
             используя ТОЛЬКО информацию из архива документов (RAG)."""
         if email_dict["answer_bool"]:
             prompt += f"\n\nТакже учти, что {email_dict['answer']}"
-        response = st.session_state.llm.invoke(prompt)
+        #response = st.session_state.llm.invoke(prompt)
+        response_str = get_reflective_answer(prompt)
         with st.chat_message("assistant"):
-            st.write(response.content)
+            st.write(response_str)
         st.session_state.chat_manager.add_message(
-            st.session_state.chat_manager.current_chat_id, "assistant", response.content, temperature
+            st.session_state.chat_manager.current_chat_id, "assistant", response_str, temperature
         )
 
         print(email_dict)
