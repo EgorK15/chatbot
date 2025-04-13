@@ -141,6 +141,7 @@ for message in current_messages:
 
 user_input = st.chat_input("Введите ваше сообщение...")
 if user_input:
+    topic_docs = False
     greeting_patterns = [
         r'^\s*(привет|здравствуй|добрый день|доброе утро|добрый вечер|хай|хей|йоу)\s*$',
         r'^\s*(hi|hello|hey|good morning|good afternoon|good evening)\s*$'
@@ -222,21 +223,26 @@ if user_input:
                 st.session_state.chat_manager.current_chat_id, "assistant", response.content, temperature
             )
             print(email_dict)
+            gmail_answer = ""
             if email_dict["answer_bool"]:
                 answer = email_dict["answer"]
                 sources = " ".join(email_dict["messages"])
-                gmail_answer = "Упоминания найдены в почтовом ящике. В сообщениях (отправитель - тема - id):\n"
+                gmail_answer += "Упоминания найдены в почтовом ящике. В сообщениях (отправитель - тема - id):\n"
                 k = 1
                 for i in email_dict["messages"]:
                     gmail_answer += f"\n{k}) {i}"
                     k += 1
+
+            if topic_docs:
+                gmail_answer += f"\n\nИнформация найдена во внутренних документах"
+            if gmail_answer != "":
                 st.info(gmail_answer)
                 st.session_state.chat_manager.add_message(st.session_state.chat_manager.current_chat_id,
                                                           "assistant",
-                                                          answer,
+                                                          gmail_answer,
                                                           temperature)
             st.stop()
-
+        topic_docs = True
         sources = [match["metadata"]["chunk_text"] for match in res["matches"][:40]]
         sources_text = "\n\n".join(sources)
 
@@ -270,18 +276,23 @@ if user_input:
         )
 
         print(email_dict)
+        gmail_answer = ""
         if email_dict["answer_bool"]:
             answer = email_dict["answer"]
             sources = " ".join(email_dict["messages"])
-            gmail_answer = "Упоминания найдены в почтовом ящике. В сообщениях (отправитель - тема - id):\n"
+            gmail_answer += "Упоминания найдены в почтовом ящике. В сообщениях (отправитель - тема - id):\n"
             k = 1
             for i in email_dict["messages"]:
                 gmail_answer += f"\n{k}) {i}"
                 k+=1
+
+        if topic_docs:
+            gmail_answer += f"\n\nИнформация найдена во внутренних документах"
+        if gmail_answer!="":
             st.info(gmail_answer)
             st.session_state.chat_manager.add_message(st.session_state.chat_manager.current_chat_id,
                                                       "assistant",
-                                                      answer,
+                                                      gmail_answer,
                                                       temperature)
         st.stop()
 
