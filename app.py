@@ -204,13 +204,13 @@ if user_input:
         res = retrieve_docs(query_text=query_text, context="", topic_code=topic_result["topic"])
 
         info_box.empty()
-
+        src = ""
         for match in res["matches"]:
             logger.info(f"[RAG MATCH] Score: {match['score']:.4f}")
             text = match["metadata"].get("chunk_text", "")
             logger.info(f"[RAG TEXT] ({len(text)} chars): {repr(text[:200])}")
             logger.info(f"[RAG METADATA] topic_name: {match['metadata']['topic_name']}, source: {match['metadata'].get('source_type', 'unknown')}")
-
+            src = match["metadata"].get("source", "")
         if not is_relevant(res, use_tfidf):
             logger.info("Релевантные документы не найдены, генерирую ответ через LLM")
             add = " "
@@ -235,7 +235,7 @@ if user_input:
                     k += 1
 
             if topic_docs:
-                gmail_answer += f"\n\nИнформация найдена во внутренних документах"
+                gmail_answer += f"\n\nИнформация найдена во внутренних документах, а именно в {src}"
             if gmail_answer != "":
                 st.info(gmail_answer)
                 st.session_state.chat_manager.add_message(st.session_state.chat_manager.current_chat_id,
@@ -289,7 +289,7 @@ if user_input:
                 k+=1
 
         if topic_docs:
-            gmail_answer += f"\n\nИнформация найдена во внутренних документах"
+            gmail_answer += f"\n\nИнформация найдена во внутренних документах, а именно в {src}"
         if gmail_answer!="":
             st.info(gmail_answer)
             st.session_state.chat_manager.add_message(st.session_state.chat_manager.current_chat_id,
