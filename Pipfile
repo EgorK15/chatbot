@@ -16,6 +16,12 @@ pandas = "*"
 pydantic = "*"
 numpy = "*"
 pinecone = "==6.0.2"
+langgraph = "*"
+langgraph-checkpoint = "*"
+langgraph-prebuilt = "*"
+langgraph-sdk = "*"
+langchain-community = "*"
+langchain-google-community = "*"
 [dev-packages]
 
 [requires]
