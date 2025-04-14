@@ -30,7 +30,7 @@ COPY extract_corpus.py ./
 COPY train_tfidf.py ./
 COPY credentials.json ./
 # Предварительная загрузка моделей
-RUN python preload_models.py
+
 
 # Финальный этап
 FROM python:3.11.11-slim

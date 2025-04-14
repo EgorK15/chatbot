@@ -12,6 +12,7 @@ import re
 import uuid
 import datetime
 import logging
+from websearchagent import search_with_agent
 from config import (
     OPENAI_API_KEY, OPENAI_API_BASE, MODEL_NAME, 
     TEMPERATURE, PINECONE_API_KEY, INDEX_NAME
@@ -147,6 +148,14 @@ if user_input:
         r'^\s*(hi|hello|hey|good morning|good afternoon|good evening)\s*$'
     ]
     email_dict = search_emails_for_info(user_input)
+    web_dict = search_with_agent(user_input)
+    web_dict_use = []
+    web_refs = []
+    for i in web_dict:
+        if i[2] > 0.2:
+            web_dict_use.append(i[0])
+            web_refs.append(i[1])
+    print(web_dict_use)
     if any(re.match(pattern, user_input.lower()) for pattern in greeting_patterns):
         st.session_state.chat_manager.add_message(
             st.session_state.chat_manager.current_chat_id, "user", user_input, temperature
@@ -216,6 +225,10 @@ if user_input:
             add = " "
             if email_dict["answer_bool"]:
                 add = f"\n\nТакже учти, что {email_dict['answer']}"
+            if web_dict_use:
+                web_str = " ".join(web_dict_use)
+                add += f"\n\nТакже есть информация из интернета, что {web_str}"
+
             #response = st.session_state.llm.invoke(user_input + add)
             response_str = get_reflective_answer(user_input+add)
             with st.chat_message("assistant"):
@@ -236,12 +249,18 @@ if user_input:
 
             if topic_docs:
                 gmail_answer += f"\n\nИнформация найдена во внутренних документах, а именно в {src}"
+
+            if web_dict_use:
+                for (i,v) in enumerate(web_refs):
+                    gmail_answer += f"\n\n{i}) Информация найдена в интернете, а именно в {v}"
             if gmail_answer != "":
                 st.info(gmail_answer)
                 st.session_state.chat_manager.add_message(st.session_state.chat_manager.current_chat_id,
                                                           "assistant",
                                                           gmail_answer,
                                                           temperature)
+
+
             st.stop()
         topic_docs = True
         sources = [match["metadata"]["chunk_text"] for match in res["matches"][:40]]
@@ -290,6 +309,7 @@ if user_input:
 
         if topic_docs:
             gmail_answer += f"\n\nИнформация найдена во внутренних документах, а именно в {src}"
+
         if gmail_answer!="":
             st.info(gmail_answer)
             st.session_state.chat_manager.add_message(st.session_state.chat_manager.current_chat_id,
