@@ -1,4 +1,3 @@
-
 services:
   llama-chatbot:
     build:
@@ -10,15 +9,6 @@ services:
     volumes:
       - ./data:/app/data
       - ./tfidf_data:/app/tfidf_data
-      - .env:/app/.env          # ✅ если .env используется
-    environment:
-      OPENAI_API_KEY: ${OPENAI_API_KEY}
-      OPENAI_API_BASE: ${OPENAI_API_BASE}
-      MODEL_NAME: ${MODEL_NAME}
-      TEMPERATURE: ${TEMPERATURE}
-      INDEX_NAME: ${INDEX_NAME}
-      PINECONE_API_KEY: ${PINECONE_API_KEY}
-    command: >
-      sh -c "export $(grep -v '^#' .env | xargs) &&
-             streamlit run app.py --server.address=0.0.0.0"
-
+    env_file:
+      - .env                  # ✅ автоматически загрузит переменные из .env
+    command: streamlit run app.py --server.address=0.0.0.0
