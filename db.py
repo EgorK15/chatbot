@@ -263,4 +263,5 @@ def migrate_database():
         conn.close()
 
 # Вызываем миграцию при импорте модуля
+create_tables()
 migrate_database()

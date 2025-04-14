@@ -38,6 +38,7 @@ FROM python:3.11.11-slim
 WORKDIR /app
 
 # Копируем виртуальное окружение и кэш моделей из builder
+COPY token.json /app/token.json
 COPY --from=builder /opt/venv /opt/venv
 COPY --from=builder /root/.cache /root/.cache
 COPY --from=builder /app/tfidf_data /app/tfidf_data

@@ -23,7 +23,7 @@ model = ChatOpenAI(
 )
 
 # Initialize Gmail toolkit
-toolkit = GmailToolkit(credentials_path="credentials.json")
+toolkit = GmailToolkit(credentials_path="credentials.json", token_path="token.json")
 gmail_tools = toolkit.get_tools()
 
 # Define our state

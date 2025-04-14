@@ -36,6 +36,10 @@ env.bak/
 venv.bak/
 .python-version
 
+# Gmail credentials
+token.json
+credentials.json
+
 # VS Code
 .vscode/
 
